@@ -1,6 +1,10 @@
 (ns game-test
+  "Smoke test for the assembled root `game` namespace, which requires
+  all 29 restored kami-game submodules. Per-module restoration-fidelity
+  tests live under test/game/."
   (:require [clojure.test :refer [deftest is testing]]
             [game]))
+
 (deftest namespace-loads
   (testing "the restored CLJC namespace loads"
-    (is (some? game))))
+    (is (some? (the-ns 'game)))))
