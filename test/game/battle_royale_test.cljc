@@ -1,0 +1,174 @@
+(ns game.battle-royale-test
+  "Tests ported 1:1 from kami-game's `battle_royale.rs` `#[cfg(test)] mod tests`
+  (kotoba-lang/kami-engine, deleted PR #82; ADR-2607010930)."
+  (:require [clojure.test :refer [deftest is testing]]
+            [game.battle-royale :as br]))
+
+(deftest storm-circle-phases
+  (testing "storm circle transitions from waiting to shrinking"
+    (let [storm0 (br/new-storm-circle br/v3-zero)]
+      (is (br/storm-inside? storm0 (br/v3 100.0 0.0 0.0)))
+      (is (not (br/storm-inside? storm0 (br/v3 br/MAP-SIZE 0.0 0.0))))
+
+      ;; Advance through wait phase
+      (let [storm (reduce (fn [s _] (first (br/storm-tick s (/ 1.0 60)))) storm0 (range 7200))]
+        (is (:shrinking storm))
+
+        ;; Advance through shrink
+        (let [storm (reduce (fn [s _] (first (br/storm-tick s (/ 1.0 60)))) storm (range 5400))]
+          (is (>= (:phase-index storm) 1))
+          (is (< (:current-radius storm) (* br/MAP-SIZE 0.5))))))))
+
+(deftest storm-damage-outside
+  (testing "no damage inside, damage outside safe zone"
+    (let [storm (br/new-storm-circle br/v3-zero)]
+      (is (= 0.0 (br/storm-damage-at storm (br/v3 0.0 0.0 0.0))))
+      (is (pos? (br/storm-damage-at storm (br/v3 br/MAP-SIZE 0.0 0.0)))))))
+
+(deftest battle-bus-traversal
+  (testing "bus flies from start toward end and eventually finishes"
+    (let [bus0 (br/new-battle-bus 42)]
+      (is (:active bus0))
+      (let [start-pos (br/battle-bus-current-position bus0)
+            bus (reduce (fn [b _] (first (br/battle-bus-tick b (/ 1.0 60)))) bus0 (range 600))
+            mid-pos (br/battle-bus-current-position bus)]
+        (is (> (br/v3-distance mid-pos start-pos) 10.0))
+        (let [bus (reduce (fn [b _] (first (br/battle-bus-tick b (/ 1.0 60)))) bus (range 6000))]
+          (is (not (:active bus))))))))
+
+(deftest player-damage-shield-first
+  (testing "shield absorbs damage before HP"
+    (let [player (-> (br/new-br-player 1 "did:test:1" "TestPlayer")
+                      (assoc :status :alive :shield 50))
+          [player' dealt] (br/br-player-take-damage player 75 2)]
+      (is (= 75 dealt))
+      (is (= 0 (:shield player')))
+      (is (= 75 (:hp player')))))) ; 100 - (75-50)
+
+(deftest player-elimination
+  (testing "HP reaching 0 eliminates and records attacker"
+    (let [player (-> (br/new-br-player 1 "did:test:1" "TestPlayer")
+                      (assoc :status :alive :hp 30 :shield 0))
+          [player' _] (br/br-player-take-damage player 30 2)]
+      (is (= :eliminated (:status player')))
+      (is (= 2 (:eliminated-by player'))))))
+
+(deftest building-system
+  (testing "structures build over time and take damage"
+    (let [s0 (br/new-build-structure 1 :wall :wood br/v3-zero 0.0 1)]
+      (is (:building s0))
+      (is (= 90 (:current-hp s0))) ; wood initial
+
+      (let [s (reduce (fn [s _] (first (br/build-structure-tick-build s (/ 1.0 60)))) s0 (range 240))]
+        (is (> (:current-hp s) 90))
+
+        (let [s (reduce (fn [s _] (first (br/build-structure-tick-build s (/ 1.0 60)))) s (range 600))]
+          (is (not (:building s)))
+          (is (= 150 (:current-hp s))) ; wood max
+
+          (let [[s destroyed1?] (br/build-structure-take-damage s 100)]
+            (is (not destroyed1?))
+            (is (= 50 (:current-hp s)))
+            (let [[s destroyed2?] (br/build-structure-take-damage s 50)]
+              (is destroyed2?)
+              (is (= 0 (:current-hp s))))))))))
+
+(deftest material-harvesting
+  (testing "harvesting and spending materials"
+    (let [player (-> (br/new-br-player 1 "did:test:1" "TestPlayer")
+                      (br/br-player-harvest :wood 100)
+                      (br/br-player-harvest :brick 50)
+                      (br/br-player-harvest :metal 30))]
+      (is (= 100 (:wood player)))
+      (is (= 50 (:brick player)))
+      (is (= 30 (:metal player)))
+
+      (is (br/br-player-can-build? player :wood))
+      (let [[player' spent?] (br/br-player-spend-material player :wood)]
+        (is spent?)
+        (is (= 90 (:wood player')))))))
+
+(deftest weapon-pickup-swap
+  (testing "5 slots fill, 6th weapon swaps active slot"
+    (let [weapons (br/weapon-pool)
+          player0 (br/new-br-player 1 "did:test:1" "TestPlayer")
+          player (reduce (fn [p w]
+                            (let [[p' dropped] (br/br-player-pick-up-weapon p w)]
+                              (is (nil? dropped))
+                              p'))
+                          player0
+                          (take 5 weapons))
+          [_player2 dropped] (br/br-player-pick-up-weapon player (nth weapons 5))]
+      (is (some? dropped)))))
+
+(deftest match-lifecycle
+  (testing "match progresses from Warmup through BattleBus and players land"
+    (let [m0 (reduce (fn [m i] (first (br/br-match-add-player m i (str "did:test:" i) (str "Player" i))))
+                      (br/new-br-match-state "match-001" 42)
+                      (range 10))]
+      (is (= 10 (count (:players m0))))
+      (is (= :warmup (:phase m0)))
+
+      (let [m (br/br-match-start m0)]
+        (is (= :battle-bus (:phase m)))
+        (is (= 10 (:alive-count m)))
+
+        (let [m (reduce (fn [m i] (br/br-match-player-jump m i)) m (range 5))]
+          (is (= :gliding (:status (first (:players m)))))
+
+          (let [m (reduce (fn [m _] (br/br-match-tick m (/ 1.0 60))) m (range 6000))]
+            (is (not= :battle-bus (:phase m)))
+            (doseq [p (:players m)]
+              (is (not= :on-bus (:status p))))))))))
+
+(deftest match-combat-and-victory
+  (testing "one player eliminating the other declares victory"
+    (let [m (-> (br/new-br-match-state "match-002" 99)
+                (br/br-match-add-player 1 "did:test:1" "Alice") first
+                (br/br-match-add-player 2 "did:test:2" "Bob") first
+                br/br-match-start)
+          m (reduce (fn [m i]
+                      (-> m
+                          (br/br-match-player-jump i)
+                          (br/br-match-player-land i (br/v3 (* i 10.0) 0.0 0.0))))
+                    m [1 2])
+          m (assoc m :phase :early-game)
+          m (br/br-match-process-hit m 1 2 200 "SCAR" false 30.0)]
+      (is (= :eliminated (:status (nth (:players m) 1))))
+
+      (let [m (br/br-match-tick m (/ 1.0 60))]
+        (is (= :victory (:phase m)))
+        (is (= 1 (:winner-id m)))
+        (is (= 1 (count (:kill-feed m))))
+        (is (= "Alice" (:eliminator-name (first (:kill-feed m)))))))))
+
+(deftest br-map-generation
+  (testing "generate-br-map produces a populated scene with POIs"
+    (let [scene (br/generate-br-map 42)]
+      (is (= "KAMI Battle Royale — Brainrot Edition" (:name scene)))
+      (is (> (count (:entities scene)) 100))
+      (is (some? (:context scene)))
+      (is (= "BattleRoyaleScene" (:ld-type scene)))
+      (is (seq (:characters scene))) ; brainrot characters included
+      (let [pois (br/generate-br-pois 42)]
+        (is (= 26 (count pois))) ; 20 original + 6 brainrot
+        (is (some #(= "Skibidi Sewers" (:name %)) pois))
+        (is (some #(= "Sigma Summit" (:name %)) pois))
+        (is (some #(= "Ohio Outpost" (:name %)) pois))))))
+
+(deftest consumable-pool-valid
+  (testing "every consumable has positive use-time and stack-size"
+    (let [consumables (br/consumable-pool)]
+      (is (>= (count consumables) 11))
+      (doseq [c consumables]
+        (is (pos? (:use-time c)))
+        (is (pos? (:stack-size c)))))))
+
+(deftest weapon-pool-valid
+  (testing "every weapon has positive damage, fire-rate, and magazine-size"
+    (let [weapons (br/weapon-pool)]
+      (is (>= (count weapons) 25))
+      (doseq [w weapons]
+        (is (pos? (:damage w)))
+        (is (pos? (:fire-rate w)))
+        (is (pos? (:magazine-size w)))))))
