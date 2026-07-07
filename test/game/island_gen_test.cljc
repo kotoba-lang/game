@@ -11,6 +11,7 @@
       added after that assertion was written). This port asserts the
       correct count, 29."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
             [game.island-gen :as ig]))
 
 (deftest all-games-generate-valid-islands
@@ -21,7 +22,7 @@
         (is (= (:title game) (:name scene)))
         (is (>= (count (:entities scene)) 5) (str "game " (:slug game) " has too few entities"))
         (is (some #(= "ground" (:id %)) (:entities scene)))
-        (is (some #(clojure.string/starts-with? (:id %) "spawn-") (:entities scene)))
+        (is (some #(str/starts-with? (:id %) "spawn-") (:entities scene)))
         (is (some #(= "portal-hub" (:id %)) (:entities scene)))
         (is (some #(= "npc-1" (:id %)) (:entities scene)))
         ;; JSON-LD fields
