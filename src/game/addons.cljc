@@ -81,11 +81,15 @@
 ;; GachaResult: {:item-id :item-name :rarity}
 
 (defn- string->seed
-  "Deterministic hash of `banner`'s bytes, using auto-promoting bigint
-  arithmetic (mirrors Rust's u64 wrapping_mul/wrapping_add fold without
-  needing exact 64-bit wraparound — only the final `% 100` roll matters)."
+  "Deterministic hash of `banner`'s bytes (mirrors Rust's u64
+  wrapping_mul/wrapping_add fold without needing exact 64-bit wraparound —
+  only the final `% 100` roll matters). `unchecked-add`/`unchecked-multiply`
+  rather than `+'`/`*'`: the latter auto-promote to bigint (no cljs
+  equivalent, and no wraparound), whereas `unchecked-*` actually wraps on
+  the JVM (long two's-complement) and is a plain portable op on cljs
+  (JS numbers never overflow-check)."
   [banner]
-  (reduce (fn [acc b] (+' (*' acc 31) b))
+  (reduce (fn [acc b] (unchecked-add (unchecked-multiply acc 31) b))
           0
           #?(:clj (map int banner) :cljs (map #(.charCodeAt % 0) banner))))
 
@@ -96,7 +100,7 @@
   (let [seed (string->seed banner)]
     (vec
      (for [i (range count)]
-       (let [roll (mod (*' seed (inc i)) 100)
+       (let [roll (mod (unchecked-multiply seed (inc i)) 100)
              [rarity item-id item-name]
              (cond
                (< roll 3) ["legendary" "sword-legendary" "Legendary Blade"]

@@ -7,4 +7,4 @@
 
 (deftest namespace-loads
   (testing "the restored CLJC namespace loads"
-    (is (some? (the-ns 'game)))))
+    (is (some? (find-ns 'game)))))

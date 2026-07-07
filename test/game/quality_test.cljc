@@ -10,7 +10,7 @@
 
 (deftest namespace-loads
   (testing "the restored CLJC namespace loads"
-    (is (some? (the-ns 'game.quality)))))
+    (is (some? (find-ns 'game.quality)))))
 
 ;; --- ported from kami-game/src/quality.rs `mod tests` ----------------
 

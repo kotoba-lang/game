@@ -15,7 +15,7 @@
 
 (deftest namespace-loads
   (testing "the restored CLJC namespace loads"
-    (is (some? (the-ns 'game.wproto)))))
+    (is (some? (find-ns 'game.wproto)))))
 
 ;; --- ported from kami-game/src/wproto.rs `mod tests` -------------------
 
