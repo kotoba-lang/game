@@ -40,6 +40,33 @@
     (is (< (Math/abs (- sy 1.0)) 0.01))
     (is (< (Math/abs (- sz 1.0)) 0.01))))
 
+(deftest squash-stretch-relaxes-through-identity-at-the-handoff
+  (testing "the squash phase must relax back to the identity scale (1.0) at
+            the squash/stretch midpoint before the stretch phase begins --
+            not jump straight from the full squash extreme to the full
+            stretch extreme in one frame. Regression: the blend factor was
+            f=sin(t*PI), a single hump that peaks (f=1, i.e. the FULL
+            extreme, not 0) exactly at t=0.5, which is also where the
+            squash/stretch branch switches -- so consecutive ticks straddling
+            the midpoint went straight from ~1.30 to ~0.85 with no
+            in-between frame near 1.0"
+    (let [duration 0.4
+          dt 0.001
+          state (a/with-clip (a/new-state)
+                              (a/squash-stretch [1.3 0.7 1.3] [0.85 1.2 0.85] duration 0.0 true))
+          ;; tick to just before the midpoint (timer just under duration/2)
+          n-to-midpoint (dec (long (/ (/ duration 2) dt)))
+          [state' _] (tick-n state dt n-to-midpoint)
+          [state-at-mid out-just-before] (a/tick state' dt)
+          [_ out-just-after] (a/tick state-at-mid dt)]
+      (testing "scale is at (or extremely close to) identity right at the handoff"
+        (is (< (Math/abs (- (first (:scale-multiplier out-just-before)) 1.0)) 0.02)))
+      (testing "no single-frame jump across the handoff -- consecutive frames
+                stay close to each other, not far-apart squash/stretch extremes"
+        (is (< (Math/abs (- (first (:scale-multiplier out-just-after))
+                            (first (:scale-multiplier out-just-before))))
+               0.05))))))
+
 (deftest pop-in-reaches-target
   (let [state (a/with-clip (a/new-state) (a/pop-in [2.0 2.0 2.0] 0.3 0.0 1.3))
         [state' _] (tick-n state 0.02 50)

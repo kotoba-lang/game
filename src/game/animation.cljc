@@ -139,11 +139,20 @@
         (if (>= timer' duration)
           [(assoc clip :active false :timer 0.0) default-output]
           (let [t (/ timer' duration)
-                p (sin (* t PI))
-                [s0 s1 s2] (if (< t 0.5)
+                squash? (< t 0.5)
+                ;; two independent half-cycle sine waves, one per phase, each
+                ;; 0 at its own start and end -- NOT a single sin(t*PI) hump
+                ;; that peaks (f=1) exactly at the squash/stretch handoff
+                ;; (t=0.5). A single hump meant the blend factor was at its
+                ;; MAXIMUM the instant the phase switched, so scale jumped
+                ;; straight from the full squash extreme to the full stretch
+                ;; extreme in one frame instead of relaxing through the
+                ;; identity scale (1.0) in between.
+                local-t (if squash? (* 2.0 t) (* 2.0 (- t 0.5)))
+                f (sin (* local-t PI))
+                [s0 s1 s2] (if squash?
                              (:squash-scale clip)
                              (:stretch-scale clip))
-                f p
                 scale [(+ 1.0 (* (- s0 1.0) f))
                        (+ 1.0 (* (- s1 1.0) f))
                        (+ 1.0 (* (- s2 1.0) f))]]
