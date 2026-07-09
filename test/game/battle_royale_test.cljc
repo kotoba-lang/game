@@ -142,6 +142,39 @@
         (is (= 1 (count (:kill-feed m))))
         (is (= "Alice" (:eliminator-name (first (:kill-feed m)))))))))
 
+(deftest non-combat-eliminations-rank-by-true-elimination-order
+  (testing "storm/DBNO deaths must place by WHEN they actually died, not by
+            player array index -- regression: assign-placements (run once
+            at match end) has no elimination-order data to recover after
+            the fact, so a player who died LATER (survived longer) but sits
+            at a lower array index than one who died EARLIER used to get a
+            WORSE placement -- the exact inverse of correct battle-royale
+            ranking. Placement is now assigned at the moment of elimination
+            (same convention br-match-process-hit already used for combat
+            kills), inside tick-dbno/tick-storm-damage."
+    (let [A (assoc (br/new-br-player "a" "did:a" "A") :status :dbno :hp 8 :dbno-timer 0.0)
+          B (assoc (br/new-br-player "b" "did:b" "B") :status :dbno :hp 4 :dbno-timer 0.0)
+          C (assoc (br/new-br-player "c" "did:c" "C") :status :alive)
+          match {:players [A B C] :alive-count 3}
+          ;; tick 1: B's smaller hp drops to 0 first -- B dies before A.
+          m1 (#'br/tick-dbno match 1.0)
+          ;; tick 2: A's hp now drops to 0 too -- A survived one more tick than B.
+          m2 (#'br/tick-dbno m1 1.0)
+          by-name (into {} (map (juxt :display-name identity)) (:players m2))]
+      (is (= :eliminated (:status (get by-name "A"))))
+      (is (= :eliminated (:status (get by-name "B"))))
+      (is (< (:placement (get by-name "A")) (:placement (get by-name "B")))
+          "A survived longer than B, so A must place BETTER (a lower number)")))
+  (testing "two players eliminated in the same tick get distinct, non-colliding placements"
+    (let [X (assoc (br/new-br-player "x" "did:x" "X") :status :dbno :hp 3 :dbno-timer 0.0)
+          Y (assoc (br/new-br-player "y" "did:y" "Y") :status :dbno :hp 4 :dbno-timer 0.0)
+          Z (assoc (br/new-br-player "z" "did:z" "Z") :status :alive)
+          match {:players [X Y Z] :alive-count 3}
+          m1 (#'br/tick-dbno match 1.0)
+          placements (->> (:players m1) (map :placement) (remove zero?))]
+      (is (= 2 (count placements)))
+      (is (= (count placements) (count (distinct placements)))))))
+
 (deftest br-map-generation
   (testing "generate-br-map produces a populated scene with POIs"
     (let [scene (br/generate-br-map 42)]
