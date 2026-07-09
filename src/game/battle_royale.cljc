@@ -575,34 +575,67 @@
                                :else :end-game)))
       match)))
 
+(defn- assign-tick-eliminations
+  "For each player who newly transitioned to :eliminated during this tick
+  (was not :eliminated in old-players but is now in new-players), assign
+  :placement with the same convention br-match-process-hit already uses for
+  combat kills -- (inc alive), where alive is the count of :alive/:dbno
+  players remaining once this tick's eliminations are applied -- so storm
+  and DBNO deaths rank by TRUE elimination order across the whole match,
+  not by player array index (assign-placements, run once at match end,
+  cannot reconstruct elimination order after the fact -- it only sees
+  final :status, never when each player actually died). Multiple
+  simultaneous eliminations within one tick (e.g. two players both hit 0 HP
+  from storm damage on the same tick) get distinct placements in a fixed,
+  arbitrary-but-deterministic order; there is no finer within-tick
+  ordering data to recover, same as a real battle-royale server resolving
+  simultaneous deaths in receipt order."
+  [old-players new-players]
+  (let [alive-after (count (filter #(or (br-player-alive? %) (= (:status %) :dbno)) new-players))
+        newly-elim-idxs (keep-indexed
+                         (fn [i p]
+                           (when (and (not= (:status (nth old-players i)) :eliminated)
+                                      (= (:status p) :eliminated))
+                             i))
+                         new-players)]
+    (first
+     (reduce (fn [[players placement] i]
+               [(assoc players i (assoc (nth players i) :placement placement)) (dec placement)])
+             [new-players (+ alive-after (count newly-elim-idxs))]
+             newly-elim-idxs))))
+
 (defn- tick-storm-damage [match dt]
   (let [storm (:storm match)
+        old-players (:players match)
         match (update match :players
                       (fn [players]
-                        (mapv (fn [p]
-                                (if-not (= (:status p) :alive)
-                                  p
-                                  (let [dmg-per-sec (storm-damage-at storm (:position p))]
-                                    (if (pos? dmg-per-sec)
-                                      (let [dmg (long (Math/ceil (* dmg-per-sec dt)))]
-                                        (first (br-player-take-damage p dmg 0)))
-                                      p))))
-                              players)))]
+                        (->> players
+                             (mapv (fn [p]
+                                     (if-not (= (:status p) :alive)
+                                       p
+                                       (let [dmg-per-sec (storm-damage-at storm (:position p))]
+                                         (if (pos? dmg-per-sec)
+                                           (let [dmg (long (Math/ceil (* dmg-per-sec dt)))]
+                                             (first (br-player-take-damage p dmg 0)))
+                                           p)))))
+                             (assign-tick-eliminations old-players))))]
     (update-alive-count match)))
 
 (defn- tick-dbno [match dt]
   (let [bleed (long (Math/ceil (* DBNO-BLEED-DPS dt)))
+        old-players (:players match)
         match (update match :players
                       (fn [players]
-                        (mapv (fn [p]
-                                (if (= (:status p) :dbno)
-                                  (let [p (update p :dbno-timer + dt)
-                                        p (update p :hp #(max 0 (- % bleed)))]
-                                    (if (or (zero? (:hp p)) (>= (:dbno-timer p) DBNO-DURATION))
-                                      (assoc p :status :eliminated)
-                                      p))
-                                  p))
-                              players)))]
+                        (->> players
+                             (mapv (fn [p]
+                                     (if (= (:status p) :dbno)
+                                       (let [p (update p :dbno-timer + dt)
+                                             p (update p :hp #(max 0 (- % bleed)))]
+                                         (if (or (zero? (:hp p)) (>= (:dbno-timer p) DBNO-DURATION))
+                                           (assoc p :status :eliminated)
+                                           p))
+                                       p)))
+                             (assign-tick-eliminations old-players))))]
     (update-alive-count match)))
 
 (defn- tick-structures [match dt]
