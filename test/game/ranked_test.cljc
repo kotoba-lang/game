@@ -78,16 +78,43 @@
         (is (= -60 (:bus-fee change)))))))
 
 (deftest matchmaking-groups
-  (testing "matchmake groups a 200-player queue into lobbies at least half full"
+  (testing "matchmake groups a 200-player queue into lobbies at least half full,
+            with every lobby honoring max-mmr-spread. NOTE: max-mmr-spread here
+            is 2000, not the original 500 -- with a 25-per-player MMR step and
+            200 players, 500 can hold at most 21 in-spread players per lobby
+            (500/25 + 1), so a 500-spread queue can NEVER satisfy the >=50
+            floor while honoring spread; the original test's params were only
+            jointly satisfiable because of the bug this now regression-tests
+            against (matchmake used to force spread-violating players into a
+            lobby purely to hit the size floor)"
     (let [queue (mapv (fn [i] {:player-did (str "did:test:" i)
                                 :mmr (* i 25)
                                 :rank (ranked/rank-tier-from-mmr (* i 25))
                                 :queue-time 5.0})
                        (range 200))
-          lobbies (ranked/matchmake queue 100 500)]
+          lobbies (ranked/matchmake queue 100 2000)]
       (is (seq lobbies))
       (doseq [lobby lobbies]
-        (is (>= (count lobby) 50))))))
+        (is (>= (count lobby) 50))
+        (let [mmrs (mapv #(:mmr (nth queue %)) lobby)]
+          (is (<= (- (apply max mmrs) (apply min mmrs)) 2000)))))))
+
+(deftest matchmaking-never-violates-max-mmr-spread-to-hit-the-size-floor
+  (testing "an under-sized lobby (below target-size/2) that hits a large MMR
+            gap must NOT force-absorb an out-of-spread player just to reach
+            the size floor -- it must close as an under-sized-but-in-spread
+            lobby instead. Regression: 4 MMR-0 players + 11 MMR-5000 players,
+            target-size 10 (floor 5), max-mmr-spread 100 used to produce a
+            first lobby mixing MMR 0 and MMR 5000 (a spread of 5000, 50x the
+            configured tolerance) because the lobby only had 4 members when
+            the 5000-point jump was encountered"
+    (let [queue (vec (concat (repeat 4 {:mmr 0 :queue-time 5.0})
+                             (repeat 11 {:mmr 5000 :queue-time 5.0})))
+          lobbies (ranked/matchmake queue 10 100)]
+      (doseq [lobby lobbies]
+        (let [mmrs (mapv #(:mmr (nth queue %)) lobby)]
+          (is (<= (- (apply max mmrs) (apply min mmrs)) 100)
+              (str "lobby " lobby " with mmrs " mmrs " violates max-mmr-spread")))))))
 
 (deftest season-soft-reset
   (testing "soft-reset-mmr applies the season ratio"
