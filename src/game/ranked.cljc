@@ -282,19 +282,24 @@
                 spread (if (> (:queue-time entry) 60.0)
                          (* max-mmr-spread 2)
                          max-mmr-spread)]
-            (cond
-              (and (<= (- (:mmr entry) lobby-min-mmr) spread)
-                   (< (count current-lobby) target-size))
+            ;; When the entry doesn't fit `spread` (or the lobby is already
+            ;; full), close the current lobby and start a new one with this
+            ;; entry -- regardless of whether current-lobby has reached the
+            ;; target-size/2 floor. Force-adding an out-of-spread entry just
+            ;; to avoid an under-sized lobby (the old :else branch) violated
+            ;; max-mmr-spread outright -- e.g. mixing MMR-0 and MMR-5000
+            ;; players into one lobby because the lobby only had 4 members.
+            ;; An under-sized-but-in-spread lobby is already an accepted
+            ;; outcome of this algorithm (the end-of-queue tail below drops
+            ;; the FINAL lobby if it's under target-size/2, but every
+            ;; mid-stream close here has always been unconditional on size).
+            (if (and (<= (- (:mmr entry) lobby-min-mmr) spread)
+                     (< (count current-lobby) target-size))
               (recur (rest indices) lobbies (conj current-lobby idx) lobby-min-mmr)
-
-              (>= (count current-lobby) (quot target-size 2))
               (recur (rest indices)
                      (conj lobbies current-lobby)
                      [idx]
-                     (:mmr entry))
-
-              :else
-              (recur (rest indices) lobbies (conj current-lobby idx) lobby-min-mmr))))))))
+                     (:mmr entry)))))))))
 
 ;; ── Season ───────────────────────────────────────────────────────────────
 
