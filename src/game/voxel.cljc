@@ -70,9 +70,12 @@
   [x y z]
   (+ (* y CHUNK-SIZE CHUNK-SIZE) (* z CHUNK-SIZE) x))
 
+(defn- chunk-in-bounds? [x y z]
+  (and (>= x 0) (>= y 0) (>= z 0) (< x CHUNK-SIZE) (< y CHUNK-SIZE) (< z CHUNK-SIZE)))
+
 (defn chunk-get
   [chunk x y z]
-  (if (and (< x CHUNK-SIZE) (< y CHUNK-SIZE) (< z CHUNK-SIZE))
+  (if (chunk-in-bounds? x y z)
     (block-from-u8 (nth (:blocks chunk) (chunk-index x y z)))
     :air))
 
@@ -80,7 +83,7 @@
   "Returns an updated chunk with (x,y,z) set to `block` (dirty := true).
   Out-of-bounds coordinates are a no-op (returns `chunk` unchanged)."
   [chunk x y z block]
-  (if (and (< x CHUNK-SIZE) (< y CHUNK-SIZE) (< z CHUNK-SIZE))
+  (if (chunk-in-bounds? x y z)
     (-> chunk
         (assoc :blocks (assoc (:blocks chunk) (chunk-index x y z) (block-type->u8 block)))
         (assoc :dirty true))
