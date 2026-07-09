@@ -18,6 +18,17 @@
       (is (= :air (voxel/chunk-get c 16 0 0))) ;; out of bounds
       (is (= :air (voxel/chunk-get c 0 16 0))))))
 
+(deftest chunk-rejects-negative-coordinates
+  ;; A negative coordinate must not wrap into a positive flat index that
+  ;; aliases a different, valid cell -- (y*256 + z*16 + x) can collide with
+  ;; another cell's index for negative x/y/z on non-zero rows.
+  (let [c (voxel/chunk-set (voxel/voxel-chunk) 15 0 0 :stone)]
+    (is (= :air (voxel/chunk-get c -1 0 1))
+        "negative x must not alias (15,0,0)'s slot at the wrapped index")
+    (is (= :air (voxel/chunk-get c -1 0 0)))
+    (is (= c (voxel/chunk-set c -1 0 1 :ore))
+        "chunk-set with negative coords must be a no-op, not corrupt (15,0,0)")))
+
 (deftest chunk-column-roundtrip
   (testing "chunk_column_roundtrip"
     (let [c (-> (voxel/voxel-chunk)
