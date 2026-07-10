@@ -97,6 +97,38 @@
   (is (= 10 (pokoa/level-from-exp 1000)))
   (is (= 20 (pokoa/level-from-exp 8000))))
 
+(deftest gain-exp-does-not-revive-a-fainted-pokoa
+  ;; current-hp 0 is a load-bearing invariant elsewhere (is-fainted?,
+  ;; first-alive picks the next battle-ready team member) -- only an
+  ;; explicit heal/heal-full/:revive item may bring a fainted Pokoa back
+  ;; above 0, never a level-up's HP-delta math.
+  (let [dex (pokoa/pokoa-dex)
+        toilettle (first dex)
+        p (pokoa/pokoa-new toilettle 5 :hardy 0)
+        fainted (pokoa/take-damage p (:max-hp p))]
+    (is (pokoa/is-fainted? fainted))
+    (let [result (pokoa/gain-exp fainted 100 toilettle)]
+      (is (= 6 (:new-level result)) "the level-up itself must still happen")
+      (is (> (:max-hp (:pokoa result)) (:max-hp fainted)) "max HP still grows")
+      (is (zero? (:current-hp (:pokoa result)))
+          "current HP must stay pinned at 0 through the level-up")
+      (is (pokoa/is-fainted? (:pokoa result))
+          "the Pokoa is still fainted after leveling up"))))
+
+(deftest gain-exp-still-scales-current-hp-by-the-max-hp-delta-when-not-fainted
+  (let [dex (pokoa/pokoa-dex)
+        toilettle (first dex)
+        p (pokoa/pokoa-new toilettle 5 :hardy 0)
+        damaged (pokoa/take-damage p 5)
+        before-max (:max-hp damaged)
+        before-cur (:current-hp damaged)
+        result (pokoa/gain-exp damaged 100 toilettle)
+        after (:pokoa result)]
+    (is (= 6 (:new-level result)))
+    (is (= (+ before-cur (- (:max-hp after) before-max)) (:current-hp after))
+        "a non-fainted Pokoa's current HP still grows by the max-HP delta")
+    (is (not (pokoa/is-fainted? after)))))
+
 (deftest evolution-check
   (let [dex (pokoa/pokoa-dex)
         toilettle (first dex) ; evolves at level 16
