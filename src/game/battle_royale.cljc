@@ -327,13 +327,25 @@
   [structure dt]
   (if-not (:building structure)
     [structure false]
-    (let [structure (update structure :build-progress + (/ dt (material-build-time (:material structure))))]
-      (if (>= (:build-progress structure) 1.0)
-        [(assoc structure :building false :build-progress 1.0 :current-hp (:max-hp structure)) true]
-        (let [material (:material structure)
-              init-hp (material-initial-hp material)
-              target-hp (+ init-hp (* (- (:max-hp structure) init-hp) (:build-progress structure)))]
-          [(assoc structure :current-hp (long target-hp)) false])))))
+    (let [material (:material structure)
+          max-hp (:max-hp structure)
+          init-hp (material-initial-hp material)
+          progress-before (:build-progress structure)
+          progress-after (+ progress-before (/ dt (material-build-time material)))]
+      (if (>= progress-after 1.0)
+        [(assoc structure :building false :build-progress 1.0 :current-hp max-hp) true]
+        ;; Apply this tick's HP growth as an INCREMENTAL delta on top of the
+        ;; structure's actual :current-hp, not an absolute value re-derived
+        ;; from :build-progress alone -- the latter silently discards any
+        ;; damage build-structure-take-damage already applied, healing the
+        ;; structure back to "as if undamaged" on the very next tick.
+        ;; :current-hp is kept as an un-truncated double while building (like
+        ;; :build-progress itself) so per-tick fractional growth accumulates
+        ;; correctly instead of being rounded away before it can add up.
+        (let [formula-hp (fn [p] (+ init-hp (* (- max-hp init-hp) p)))
+              hp-delta (- (formula-hp progress-after) (formula-hp progress-before))
+              current-hp' (min max-hp (+ (:current-hp structure) hp-delta))]
+          [(assoc structure :build-progress progress-after :current-hp current-hp') false])))))
 
 (defn build-structure-take-damage
   "Apply damage. Returns [structure' destroyed?]."
