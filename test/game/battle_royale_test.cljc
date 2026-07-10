@@ -73,6 +73,26 @@
               (is destroyed2?)
               (is (= 0 (:current-hp s))))))))))
 
+(deftest building-damage-mid-construction-is-not-healed-by-later-ticks
+  ;; tick-build must apply this tick's HP growth as an incremental delta on
+  ;; top of :current-hp, not overwrite it with an absolute value re-derived
+  ;; from :build-progress alone -- otherwise a structure damaged mid-build
+  ;; gets silently healed back to "as if undamaged" on the very next tick.
+  (testing "damage taken partway through a build persists across subsequent ticks"
+    (let [s0 (br/new-build-structure 1 :wall :wood br/v3-zero 0.0 1)
+          ;; ~2s into the 4s wood build (build-progress ~0.5)
+          s1 (reduce (fn [s _] (first (br/build-structure-tick-build s (/ 1.0 60)))) s0 (range 120))
+          hp-before-damage (:current-hp s1)
+          [s2 destroyed?] (br/build-structure-take-damage s1 100)]
+      (is (> hp-before-damage 90) "the structure has grown some HP from its initial 90 by the halfway point")
+      (is (not destroyed?))
+      (is (< (:current-hp s2) 20) "100 damage against ~120 HP leaves well under 20")
+      (let [s3 (first (br/build-structure-tick-build s2 (/ 1.0 60)))]
+        (is (< (:current-hp s3) (+ (:current-hp s2) 1))
+            "one more tick must only add that tick's small incremental growth, not jump back toward full HP")
+        (is (< (:current-hp s3) 30)
+            "the structure must still reflect the damage, not have been silently healed to ~120")))))
+
 (deftest material-harvesting
   (testing "harvesting and spending materials"
     (let [player (-> (br/new-br-player 1 "did:test:1" "TestPlayer")
