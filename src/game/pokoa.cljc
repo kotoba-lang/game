@@ -359,7 +359,14 @@
             stats' (calc-stats (:base-stats species) (:ivs pokoa) (:evs pokoa) level' (:nature pokoa))
             old-max (:max-hp pokoa)
             max-hp' (:hp stats')
-            current-hp' (+ (:current-hp pokoa) (- max-hp' old-max))]
+            ;; A fainted Pokoa (current-hp 0) must STAY at 0 through a level-up
+            ;; -- max HP can still grow, but current HP rising off the floor
+            ;; without an explicit heal/heal-full/:revive-item call would
+            ;; silently un-faint it, bypassing is-fainted?/first-alive's
+            ;; load-bearing invariant that 0 HP means out of the battle.
+            current-hp' (if (zero? (:current-hp pokoa))
+                          0
+                          (min max-hp' (+ (:current-hp pokoa) (- max-hp' old-max))))]
         {:pokoa (assoc pokoa :exp exp' :level level' :stats stats' :max-hp max-hp' :current-hp current-hp')
          :new-level level'})
       {:pokoa (assoc pokoa :exp exp') :new-level nil})))
