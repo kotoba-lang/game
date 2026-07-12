@@ -362,6 +362,53 @@
     :ramp (v3 5.12 2.8 5.12)
     :roof (v3 5.12 0.15 5.12)))
 
+;; ── Placement (grid-snap + aim targeting + overlap) ─────────────────────
+;; ADR-2607121800 Phase A2: the economy above (piece/material/HP/harvest) was
+;; already real and tested; what was missing was the "aim at a spot and place
+;; a grid-snapped piece" targeting layer every building game needs on top of
+;; it. Pure functions, reusable by any kotoba-lang game, not tied to this
+;; namespace's own (unrelated, IP-risky — see PR/commit notes) POI generator.
+
+(def GRID-SIZE
+  "Building-grid cell size (world units), matching build-structure-dimensions'
+  :wall/:floor footprint (5.12 x 5.12) — pieces tile edge-to-edge with no gap."
+  5.12)
+
+(defn snap-to-grid
+  "Round a world position to the nearest building-grid cell centre in the XZ
+  plane. Y passes through unsnapped — vertical placement (which floor/level)
+  is the caller's concern, not this grid's."
+  [[x y z]]
+  (v3 (* (Math/round (/ x GRID-SIZE)) GRID-SIZE)
+      y
+      (* (Math/round (/ z GRID-SIZE)) GRID-SIZE)))
+
+(defn placement-candidate
+  "The grid-snapped cell one piece-length ahead of `origin`, facing `forward`
+  (a normalized [x y z], typically the player's aim/move direction) — the
+  standard 'hold a piece up, it snaps to the nearest valid spot' targeting
+  every building game uses."
+  [origin forward]
+  (snap-to-grid (v3-add origin (v3-scale forward GRID-SIZE))))
+
+(defn structures-overlap?
+  "Do two positions resolve to the same building-grid cell (XZ)? Both are
+  re-snapped here so a caller can pass either an already-snapped or a raw
+  position."
+  [pos-a pos-b]
+  (let [[ax _ az] (snap-to-grid pos-a)
+        [bx _ bz] (snap-to-grid pos-b)]
+    (and (< (Math/abs (- ax bx)) 0.5) (< (Math/abs (- az bz)) 0.5))))
+
+(defn placement-blocked?
+  "Is `candidate` already occupied by an existing structure of the SAME
+  piece type? Different piece types are allowed to share a cell (a floor, a
+  wall, and a roof legitimately stack on one tile in every building game this
+  genre-clones) — only same-on-same (two walls on the same tile) is blocked."
+  [structures piece candidate]
+  (boolean (some (fn [s] (and (= (:piece s) piece) (structures-overlap? (:position s) candidate)))
+                 structures)))
+
 ;; ── Player State ───────────────────────────────────────────────────────
 
 (def player-status-values
@@ -741,6 +788,18 @@
                             (update :structures conj structure))]
               [match id])))))
     [match nil]))
+
+(defn br-match-player-build-aimed
+  "Player builds at a grid-snapped position one piece-length ahead of `origin`
+  facing `forward`, instead of `br-match-player-build`'s raw caller-supplied
+  position/rotation (still available as-is for tests/tools wanting an exact
+  spot). Returns [match' structure-id-or-nil] — nil on a blocked cell too,
+  same as the underlying fn's nil-on-can't-afford-material."
+  [match client-id piece material origin forward]
+  (let [candidate (placement-candidate origin forward)]
+    (if (placement-blocked? (:structures match) piece candidate)
+      [match nil]
+      (br-match-player-build match client-id piece material candidate 0.0))))
 
 (defn br-match-process-hit
   "Process hit from attacker to victim."

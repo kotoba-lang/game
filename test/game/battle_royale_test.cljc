@@ -225,3 +225,51 @@
         (is (pos? (:damage w)))
         (is (pos? (:fire-rate w)))
         (is (pos? (:magazine-size w)))))))
+
+;; ── Placement (ADR-2607121800 Phase A2) ─────────────────────────────────
+
+(deftest snap-to-grid-rounds-to-nearest-cell
+  (testing "positions round to the nearest GRID-SIZE multiple in XZ, Y untouched"
+    (is (= (br/v3 0.0 3.0 0.0) (br/snap-to-grid (br/v3 1.0 3.0 -1.0))))
+    (is (= (br/v3 (* 2 br/GRID-SIZE) 0.0 (* 3 br/GRID-SIZE))
+           (br/snap-to-grid (br/v3 (+ (* 2 br/GRID-SIZE) 0.4) 0.0 (- (* 3 br/GRID-SIZE) 0.3)))))))
+
+(deftest placement-candidate-is-one-cell-ahead-and-snapped
+  (testing "candidate is GRID-SIZE ahead of origin along forward, grid-snapped"
+    (let [origin (br/v3 0.0 0.0 0.0)
+          forward (br/v3 1.0 0.0 0.0)
+          candidate (br/placement-candidate origin forward)]
+      (is (= (br/v3 br/GRID-SIZE 0.0 0.0) candidate)))))
+
+(deftest structures-overlap-same-cell-different-cell
+  (testing "same grid cell overlaps regardless of sub-cell jitter; different cells don't"
+    (is (br/structures-overlap? (br/v3 0.1 0.0 0.1) (br/v3 -0.2 0.0 0.3)))
+    (is (not (br/structures-overlap? (br/v3 0.0 0.0 0.0) (br/v3 br/GRID-SIZE 0.0 0.0))))))
+
+(deftest placement-blocked-only-for-same-piece-on-same-cell
+  (testing "a second wall on an occupied wall cell is blocked; a floor on that same cell is not"
+    (let [wall (br/new-build-structure 1 :wall :wood (br/v3 0.0 0.0 0.0) 0.0 1)
+          structures [wall]]
+      (is (br/placement-blocked? structures :wall (br/v3 0.0 0.0 0.0)))
+      (is (not (br/placement-blocked? structures :floor (br/v3 0.0 0.0 0.0))))
+      (is (not (br/placement-blocked? structures :wall (br/v3 br/GRID-SIZE 0.0 0.0)))))))
+
+(deftest br-match-player-build-aimed-places-a-grid-snapped-structure
+  (testing "aimed build spends material and creates a structure at the snapped candidate cell"
+    (let [match (-> (br/new-br-match-state "m1" 1)
+                     (br/br-match-add-player 1 "did:test:1" "P1")
+                     first)
+          match (update-in match [:players 0] assoc :status :alive :wood 10)
+          origin (br/v3 0.0 0.0 0.0)
+          forward (br/v3 0.0 0.0 1.0)
+          [match' sid] (br/br-match-player-build-aimed match 1 :wall :wood origin forward)]
+      (is (some? sid))
+      (is (= 1 (count (:structures match'))))
+      (is (= (br/v3 0.0 0.0 br/GRID-SIZE) (:position (first (:structures match')))))
+      (is (= 0 (:wood (first (:players match'))))) ; 10 - material-cost(10)
+
+      (testing "a second aimed build at the same spot/piece is blocked, material unspent"
+        (let [[match'' sid2] (br/br-match-player-build-aimed match' 1 :wall :wood origin forward)]
+          (is (nil? sid2))
+          (is (= 1 (count (:structures match''))))
+          (is (= 0 (:wood (first (:players match''))))))))))
