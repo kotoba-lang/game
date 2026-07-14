@@ -2,6 +2,43 @@
   (:require [clojure.test :refer [deftest is]]
             [game.social :as social]))
 
+(deftest notification-inbox-is-recipient-scoped-idempotent-and-bounded
+  (let [notification (fn [id recipient kind created-at & [expires-at]]
+                       (cond-> #:notification{:id id :recipient recipient :kind kind
+                                              :title (str "title-" id) :body "body"
+                                              :source-id (str "source-" id)
+                                              :created-at created-at}
+                         expires-at (assoc :notification/expires-at expires-at)))
+        [_ s] (social/issue-notification (social/platform-state)
+                                         (notification "old" "did:a" :mail 10))
+        [_ s] (social/issue-notification s (notification "new" "did:a" :purchase 20))
+        [_ s] (social/issue-notification s (notification "other" "did:b" :system 30))
+        [_ s] (social/issue-notification s (notification "expired" "did:a" :match 5 15))]
+    (is (= :duplicate (first (social/issue-notification
+                              s (notification "old" "did:a" :mail 10)))))
+    (is (= 2 (social/unread-notification-count s "did:a" 25)))
+    (is (= ["new" "old"]
+           (mapv :notification/id (last (social/notification-inbox s "did:a" 25 10)))))
+    (is (= :not-notification-recipient
+           (second (social/mark-notification-read s "new" "did:b" 26))))
+    (let [[_ s] (social/mark-notification-read s "new" "did:a" 26)]
+      (is (= ["old" "new"]
+             (mapv :notification/id (last (social/notification-inbox s "did:a" 27 10)))))
+      (is (= 1 (social/unread-notification-count s "did:a" 27)))
+      (let [[_ s] (social/mark-all-notifications-read s "did:a" 28)
+            [_ s] (social/dismiss-notification s "new" "did:a" 29)]
+        (is (zero? (social/unread-notification-count s "did:a" 30)))
+        (is (= ["old"]
+               (mapv :notification/id
+                     (last (social/notification-inbox s "did:a" 30 10))))))))
+  (is (= :invalid-notification
+         (second (social/issue-notification
+                  (social/platform-state)
+                  #:notification{:id "bad" :recipient "did:a" :kind :unknown
+                                  :title "bad" :body "" :source-id "x" :created-at 1}))))
+  (is (= :invalid-notification-query
+         (second (social/notification-inbox (social/platform-state) "did:a" 1 101)))))
+
 (deftest saves-are-revisioned
   (let [[ok save s] (social/put-save (social/platform-state)
                                      {:player "did:p1" :game "g/a" :expected-rev 0

@@ -23,6 +23,7 @@
    :achievement-progress {}
    :achievement-unlocks {}
    :activity-events {}
+   :notifications {}
    :saves {}
    :wallets {}
    :payment-intents {}
@@ -43,6 +44,96 @@
    :blocks #{}
    :groups {}
    :rooms {}})
+
+(def notification-kinds
+  #{:achievement :friend-request :party-invite :group :match :mail
+    :purchase :payment :ranking :guild-event :system})
+
+(defn issue-notification
+  "Insert one immutable notification envelope. `id` is the delivery
+   idempotency key; `source-id` links the originating request, invite, receipt
+   or event. Hosts authenticate the producer before calling this reducer."
+  [state {:notification/keys [id recipient kind title body source-id action
+                              created-at expires-at] :as notification}]
+  (cond
+    (or (nil? id) (nil? recipient) (not (contains? notification-kinds kind))
+        (not (string? title)) (empty? title) (> (count title) 80)
+        (not (string? body)) (> (count body) 240)
+        (nil? source-id) (not (integer? created-at))
+        (and expires-at (or (not (integer? expires-at)) (<= expires-at created-at)))
+        (and action (not (map? action))))
+    [:error :invalid-notification state]
+
+    (contains? (:notifications state) id) [:duplicate state]
+
+    :else
+    [:ok (assoc-in state [:notifications id]
+                   (assoc notification :notification/read-at nil
+                                       :notification/dismissed-at nil))]))
+
+(defn notification-visible?
+  [notification recipient now]
+  (and (= recipient (:notification/recipient notification))
+       (nil? (:notification/dismissed-at notification))
+       (or (nil? (:notification/expires-at notification))
+           (> (:notification/expires-at notification) now))))
+
+(defn notification-inbox
+  "Visible notifications, unread first then newest, with deterministic id tie
+   breaking. `limit` is host-bounded to prevent an unbounded projection."
+  [state recipient now limit]
+  (if (or (nil? recipient) (not (integer? now)) (not (integer? limit))
+          (not (<= 1 limit 100)))
+    [:error :invalid-notification-query []]
+    [:ok (->> (:notifications state)
+              vals
+              (filter #(notification-visible? % recipient now))
+              (sort-by (fn [notification]
+                         [(if (:notification/read-at notification) 1 0)
+                          (- (:notification/created-at notification))
+                          (str (:notification/id notification))]))
+              (take limit)
+              vec)]))
+
+(defn unread-notification-count [state recipient now]
+  (count (filter #(and (notification-visible? % recipient now)
+                       (nil? (:notification/read-at %)))
+                 (vals (:notifications state)))))
+
+(defn mark-notification-read [state notification-id recipient read-at]
+  (let [notification (get-in state [:notifications notification-id])]
+    (cond
+      (nil? notification) [:error :notification-not-found state]
+      (not= recipient (:notification/recipient notification))
+      [:error :not-notification-recipient state]
+      (not (integer? read-at)) [:error :invalid-notification-clock state]
+      (:notification/read-at notification) [:duplicate state]
+      :else [:ok (assoc-in state [:notifications notification-id :notification/read-at]
+                           read-at)])))
+
+(defn mark-all-notifications-read [state recipient read-at]
+  (if (or (nil? recipient) (not (integer? read-at)))
+    [:error :invalid-notification-command state]
+    [:ok (update state :notifications
+                 (fn [notifications]
+                   (into {}
+                         (map (fn [[id notification]]
+                                [id (if (and (= recipient (:notification/recipient notification))
+                                             (nil? (:notification/read-at notification)))
+                                      (assoc notification :notification/read-at read-at)
+                                      notification)]))
+                         notifications)))]))
+
+(defn dismiss-notification [state notification-id recipient dismissed-at]
+  (let [notification (get-in state [:notifications notification-id])]
+    (cond
+      (nil? notification) [:error :notification-not-found state]
+      (not= recipient (:notification/recipient notification))
+      [:error :not-notification-recipient state]
+      (not (integer? dismissed-at)) [:error :invalid-notification-clock state]
+      (:notification/dismissed-at notification) [:duplicate state]
+      :else [:ok (assoc-in state [:notifications notification-id :notification/dismissed-at]
+                           dismissed-at)])))
 
 (def profile-visibilities #{:public :friends :private})
 
