@@ -15,7 +15,8 @@
 (deftest cross-game-profile-achievement-title-and-activity
   (let [definition (social/achievement
                     #:achievement{:id "drive-100" :game "gftd/drive" :metric :score
-                                  :reducer :sum :threshold 100 :title "Road Runner"})
+                                  :reducer :sum :threshold 100 :title "Drive Centurion"
+                                  :title-reward "Road Runner"})
         event (fn [id value verified]
                 #:event{:id id :player "did:p1" :game "gftd/drive" :metric :score
                         :value value :verified verified :at 10})
