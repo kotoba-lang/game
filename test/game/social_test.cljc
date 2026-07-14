@@ -60,3 +60,35 @@
 (deftest royalty-contract
   (is (= [["parent" 10] ["root" 5]]
          (social/royalties 100 ["parent" "root"]))))
+
+(deftest friendship-block-and-group-contract
+  (let [s (social/platform-state)
+        [_ s] (social/request-friend s {:request-id "r1" :from "a" :to "b" :at 1})
+        [_ s] (social/answer-friend s {:request-id "r1" :player "b" :accept? true :at 2})]
+    (is (contains? (:friendships s) ["a" "b"]))
+    (let [[_ blocked] (social/block-player s "a" "b" 3)]
+      (is (social/blocked? blocked "a" "b"))
+      (is (empty? (:friendships blocked)))
+      (is (= :blocked (second (social/request-friend blocked
+                                                     {:request-id "r2" :from "b" :to "a" :at 4}))))))
+  (let [[_ s] (social/create-group (social/platform-state)
+                                   #:group{:id "p1" :kind :party :owner "a" :capacity 2})
+        [_ s] (social/join-group s "p1" "b" :member)]
+    (is (= {"a" :owner "b" :member} (get-in s [:groups "p1" :group/members])))
+    (is (= :group-full (second (social/join-group s "p1" "c" :member))))))
+
+(deftest room-chat-is-member-only-moderated-and-bounded
+  (let [[_ s] (social/create-room (social/platform-state)
+                                  #:room{:id "room" :kind :party :members #{"a" "b"}
+                                         :max-length 10 :history-limit 2})
+        msg (fn [id from text] #:message{:id id :room "room" :from from :text text
+                                         :moderation :approved})
+        [_ _ s] (social/admit-room-message s (msg "m1" "a" "one"))
+        [_ _ s] (social/admit-room-message s (msg "m2" "b" "two"))
+        [_ _ s] (social/admit-room-message s (msg "m3" "a" "three"))]
+    (is (= ["m2" "m3"] (mapv :message/id (get-in s [:rooms "room" :room/messages]))))
+    (is (= :not-room-member (second (social/admit-room-message s (msg "m4" "c" "hi")))))
+    (is (= :message-too-long (second (social/admit-room-message s (msg "m5" "a" "way too long")))))
+    (is (= :moderation-rejected
+           (second (social/admit-room-message s (assoc (msg "m6" "a" "no")
+                                                       :message/moderation :rejected)))))))
