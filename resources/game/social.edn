@@ -1,8 +1,16 @@
 {:contract/id :kotoba.game/social
- :contract/version 10
+ :contract/version 11
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
+  :cross-game-profile {:fields #{:display-name :bio :avatar :visibility :equipped-title}
+                       :title-admission :achievement-unlock}
+  :achievements {:source :host-verified-event
+                 :reducers #{:sum :max}
+                 :idempotency :event/id
+                 :unlock :immutable}
+  :activity {:append-only true :idempotency :activity/id
+             :visibility #{:public :friends :private}}
   :save {:concurrency :optimistic-revision}
   :wallet {:currencies #{:free-gem :paid-gem}
            :idempotency :tx/id
@@ -52,7 +60,7 @@
          :admission [:membership :block :length :moderation :duplicate]
          :history :bounded}
   :platform-hud {:projection :platform-hud-model
-                 :tabs [:wallet :inventory :store :mail :match :guild-events :friends :groups]
+                 :tabs [:profile :wallet :inventory :store :mail :match :guild-events :friends :groups]
                  :provider-neutral true}}
  :host-responsibilities
  #{:persistence :clock :identity-proof :score-verification
