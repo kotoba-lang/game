@@ -933,7 +933,8 @@
     {:hud/version 1
      :player/did did
      :profile/data profile
-     :profile/achievements (vec (sort-by :unlocked_at > achievements))
+     :profile/achievements (vec (sort-by #(or (:unlocked_at %) (:achievement/unlocked-at %) 0)
+                                         > achievements))
      :profile/activity (vec (sort-by :at > activity))
      :wallet/balances wallet-balances
      :wallet/transactions (vec transactions)
@@ -965,7 +966,9 @@
                                              (assoc m group-id
                                                     (vec (sort-by :joined_at members))))
                                            {}))
-     :hud/tabs [{:tab/id :profile :tab/count (count achievements)}
+     :hud/tabs [{:tab/id :profile
+                 :tab/count (count (filter #(or (:unlocked_at %)
+                                                (:achievement/unlocked-at %)) achievements))}
                 {:tab/id :wallet :tab/count (count transactions)}
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
