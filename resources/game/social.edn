@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 3
+ :contract/version 4
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -20,7 +20,10 @@
   :groups {:kinds #{:party :guild} :roles true :capacity true}
   :chat {:rooms #{:direct :party :guild :game}
          :admission [:membership :block :length :moderation :duplicate]
-         :history :bounded}}
+         :history :bounded}
+  :platform-hud {:projection :platform-hud-model
+                 :tabs [:wallet :inventory :store :friends :groups]
+                 :provider-neutral true}}
  :host-responsibilities
  #{:persistence :clock :identity-proof :score-verification
    :payment-verification :content-moderation :transport}}

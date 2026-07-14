@@ -307,6 +307,62 @@
                                             [(:score/player entry) reward])))
                                   ranked)}])))
 
+;; ── portable platform HUD projection ────────────────────────────────────────
+
+(defn- currency-key [currency]
+  (cond (keyword? currency) currency
+        (string? currency) (keyword currency)
+        :else currency))
+
+(defn platform-hud-model
+  "Project a host snapshot into one stable, portable HUD model. Hosts may use
+   D1/HTTP, native storage, or an in-memory state; renderers consume this shape
+   instead of learning a provider's wire rows. Unknown fields are ignored so
+   old clients can read newer snapshots."
+  [{:keys [did balances transactions inventory receipts products
+           friend-requests friendships blocks groups] :as _snapshot}]
+  (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
+                                  (assoc m (currency-key currency) (or balance 0)))
+                                (zipmap currencies (repeat 0)) balances)
+        owned-items (->> inventory
+                         (filter #(or (pos? (or (:quantity %) 0))
+                                      (true? (:entitlement %))))
+                         (sort-by :item) vec)
+        friend-ids (->> friendships
+                        (keep (fn [{:keys [a b]}]
+                                (cond (= did a) b (= did b) a)))
+                        distinct sort vec)
+        pending-in (->> friend-requests
+                        (filter #(and (= did (:recipient %)) (= "pending" (:status %))))
+                        (sort-by :created_at) vec)
+        pending-out (->> friend-requests
+                         (filter #(and (= did (:sender %)) (= "pending" (:status %))))
+                         (sort-by :created_at) vec)
+        product-models (->> products
+                            (map (fn [{:keys [currency price] :as p}]
+                                   (let [currency (currency-key currency)]
+                                     (assoc p :currency currency
+                                            :affordable? (>= (get wallet-balances currency 0)
+                                                             (or price 0))))))
+                            (sort-by :id) vec)]
+    {:hud/version 1
+     :player/did did
+     :wallet/balances wallet-balances
+     :wallet/transactions (vec transactions)
+     :inventory/items owned-items
+     :store/products product-models
+     :store/receipts (vec receipts)
+     :social/friends friend-ids
+     :social/pending-in pending-in
+     :social/pending-out pending-out
+     :social/blocks (vec blocks)
+     :social/groups (vec groups)
+     :hud/tabs [{:tab/id :wallet :tab/count (count transactions)}
+                {:tab/id :inventory :tab/count (count owned-items)}
+                {:tab/id :store :tab/count (count product-models)}
+                {:tab/id :friends :tab/count (+ (count friend-ids) (count pending-in))}
+                {:tab/id :groups :tab/count (count groups)}]}))
+
 (defn admit-chat
   "Validate one player message against room policy and recipient controls.
    Content classification/moderation supplies :message/moderation externally."

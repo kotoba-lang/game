@@ -114,3 +114,27 @@
         (is (= :ok ok))
         (is (= {"a" {:free-gem 100} "b" {:free-gem 100} "c" {:free-gem 25}}
                (:season/rewards snapshot)))))))
+
+(deftest platform-hud-projects-provider-snapshot
+  (let [hud (social/platform-hud-model
+             {:did "did:me"
+              :balances [{:currency "free-gem" :balance 80}
+                         {:currency :paid-gem :balance 5}]
+              :transactions [{:id "tx1"}]
+              :inventory [{:item "hat" :quantity 1 :entitlement false}
+                          {:item "skin" :quantity 0 :entitlement true}
+                          {:item "spent" :quantity 0 :entitlement false}]
+              :products [{:id "cheap" :currency "free-gem" :price 30}
+                         {:id "premium" :currency "paid-gem" :price 10}]
+              :friendships [{:a "did:me" :b "did:friend"}]
+              :friend-requests [{:id "in" :sender "did:new" :recipient "did:me"
+                                 :status "pending" :created_at 1}
+                                {:id "out" :sender "did:me" :recipient "did:other"
+                                 :status "pending" :created_at 2}]
+              :groups [{:id "guild"}]})]
+    (is (= {:free-gem 80 :paid-gem 5} (:wallet/balances hud)))
+    (is (= ["hat" "skin"] (mapv :item (:inventory/items hud))))
+    (is (= [true false] (mapv :affordable? (:store/products hud))))
+    (is (= ["did:friend"] (:social/friends hud)))
+    (is (= ["in"] (mapv :id (:social/pending-in hud))))
+    (is (= [1 2 2 2 1] (mapv :tab/count (:hud/tabs hud))))))
