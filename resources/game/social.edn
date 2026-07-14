@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 2
+ :contract/version 3
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -11,7 +11,10 @@
   :store {:atomic [:wallet/debit :inventory/grant :receipt/write]
           :idempotency :receipt/id}
   :ranking {:partition [:board/game :board/season]
-            :admission :score/verified}
+            :admission [:season/active :score/verified]
+            :ties :competition-rank
+            :display-tie-break [:score/at :score/player]
+            :close {:snapshot true :reward-tiers true}}
   :social-graph {:friend-request [:pending :accepted :declined]
                  :block {:directional true :removes-friendship true}}
   :groups {:kinds #{:party :guild} :roles true :capacity true}
