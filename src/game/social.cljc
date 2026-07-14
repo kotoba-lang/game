@@ -65,10 +65,12 @@
 (defn achievement
   "Validate a cross-game achievement. Reducer :sum accumulates verified event
    values; :max keeps a personal best."
-  [{:achievement/keys [id game metric reducer threshold title] :as definition}]
+  [{:achievement/keys [id game metric reducer threshold title title-reward] :as definition}]
   (when (and id game metric (contains? #{:sum :max} reducer)
              (number? threshold) (pos? threshold)
-             (string? title) (not (empty? title)) (<= (count title) 48))
+             (string? title) (not (empty? title)) (<= (count title) 48)
+             (string? title-reward) (not (empty? title-reward))
+             (<= (count title-reward) 48))
     definition))
 
 (defn observe-achievement
@@ -98,7 +100,7 @@
                unlocked? (assoc-in [:achievement-unlocks player achievement-id]
                                    #:achievement{:id achievement-id
                                                  :game (:achievement/game definition)
-                                                 :title (:achievement/title definition)
+                                                 :title (:achievement/title-reward definition)
                                                  :unlocked-at at}))]))))
 
 (defn record-activity
