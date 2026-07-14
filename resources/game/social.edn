@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 7
+ :contract/version 8
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -18,6 +18,14 @@
                  :currency :free-gem
                  :idempotency [:player :day]
                  :streak {:missed-day :restart :schedule :cyclic}}
+  :mail {:attachments #{:free-gem :stack-item}
+         :claim {:recipient-only true :idempotent true}
+         :gift {:relationship :verified-friend
+                :escrow :send-time
+                :max-free-gem 100
+                :paid-gem false
+                :entitlement false
+                :expiry-refund true}}
   :ranking {:partition [:board/game :board/season]
             :admission [:season/active :score/verified]
             :ties :competition-rank
