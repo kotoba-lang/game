@@ -1113,7 +1113,8 @@
   [{:keys [did profile achievements activity balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
            economy-debts economy-holds
-           saves mail notifications match-queue matches guild-events guild-standings
+           saves missions battle-pass battle-pass-tiers battle-pass-claims
+           mail notifications match-queue matches guild-events guild-standings
            friend-requests friendships blocks groups group-members
            party-invites match-penalty match-connections]
     :as _snapshot}]
@@ -1173,6 +1174,10 @@
      :store/gem-packs (vec gem-packs)
      :store/payments (vec payments)
      :saves/items (vec (sort-by :game saves))
+     :missions/items (vec (sort-by (juxt :starts_at :id) missions))
+     :battle-pass/data battle-pass
+     :battle-pass/tiers (vec (sort-by :level battle-pass-tiers))
+     :battle-pass/claims (set (map (juxt :level :track) battle-pass-claims))
      :mail/inbox inbox
      :notifications/items notification-inbox
      :notifications/unread (count (remove :read_at notification-inbox))
@@ -1207,6 +1212,8 @@
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
                 {:tab/id :saves :tab/count (count saves)}
+                {:tab/id :missions :tab/count (count (remove :claimed_at missions))}
+                {:tab/id :battle-pass :tab/count (if battle-pass 1 0)}
                 {:tab/id :mail :tab/count (count inbox)}
                 {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches)
                                               (count (filter #(= "pending" (:status %))
