@@ -39,6 +39,52 @@
     (is (= :duplicate (first (social/purchase bought {:player "did:p1" :receipt-id "r1"
                                                        :product p :purchased-at 13}))))))
 
+(deftest paid-gem-payment-and-refund-lifecycle
+  (let [pack #:pack{:id :gem-100 :gems 100 :fiat-currency :jpy :fiat-amount 160}
+        [_ intent s] (social/create-payment-intent
+                      (social/platform-state)
+                      {:intent-id "pi-1" :player "did:p1" :pack pack :created-at 10})]
+    (is (= :pending (:payment/status intent)))
+    (is (= :duplicate (first (social/create-payment-intent
+                              s {:intent-id "pi-1" :player "did:p1"
+                                 :pack pack :created-at 11}))))
+    (is (= :payment-unverified
+           (second (social/settle-payment s {:intent-id "pi-1" :provider-ref "provider-1"
+                                             :verified? false :settled-at 12}))))
+    (let [[_ settled paid] (social/settle-payment
+                            s {:intent-id "pi-1" :provider-ref "provider-1"
+                               :verified? true :settled-at 12})]
+      (is (= :settled (:payment/status settled)))
+      (is (= 100 (social/balance (get-in paid [:wallets "did:p1"]) :paid-gem)))
+      (is (= :duplicate (first (social/settle-payment
+                                paid {:intent-id "pi-1" :provider-ref "provider-1"
+                                      :verified? true :settled-at 13}))))
+      (let [[_ refund refunded] (social/refund-payment
+                                 paid {:refund-id "re-1" :intent-id "pi-1"
+                                       :provider-ref "provider-refund-1"
+                                       :verified? true :refunded-at 14})]
+        (is (= 100 (:refund/gems refund)))
+        (is (zero? (social/balance (get-in refunded [:wallets "did:p1"]) :paid-gem)))
+        (is (= :refunded (get-in refunded [:payment-intents "pi-1" :payment/status])))
+        (is (= :duplicate (first (social/refund-payment
+                                  refunded {:refund-id "re-1" :intent-id "pi-1"
+                                            :provider-ref "provider-refund-1"
+                                            :verified? true :refunded-at 15})))))))
+  (let [pack #:pack{:id :gem-10 :gems 10 :fiat-currency :usd :fiat-amount 99}
+        [_ _ s] (social/create-payment-intent (social/platform-state)
+                                              {:intent-id "pi-spent" :player "did:p2"
+                                               :pack pack :created-at 1})
+        [_ _ s] (social/settle-payment s {:intent-id "pi-spent" :provider-ref "pay"
+                                          :verified? true :settled-at 2})
+        [_ wallet] (social/apply-transaction (get-in s [:wallets "did:p2"])
+                                             #:tx{:id "spend" :currency :paid-gem
+                                                  :amount -1 :kind :purchase})
+        s (assoc-in s [:wallets "did:p2"] wallet)]
+    (is (= :refund-balance-spent
+           (second (social/refund-payment s {:refund-id "re-spent" :intent-id "pi-spent"
+                                             :provider-ref "refund" :verified? true
+                                             :refunded-at 3}))))))
+
 (deftest ranking-and-chat-contracts
   (let [b (social/leaderboard #:board{:id :weekly :game :drive :season "2026-W29"})
         [_ b] (social/submit-score b #:score{:submission "s1" :player "did:p1"
@@ -126,6 +172,8 @@
                           {:item "spent" :quantity 0 :entitlement 0}]
               :products [{:id "cheap" :currency "free-gem" :price 30}
                          {:id "premium" :currency "paid-gem" :price 10}]
+              :gem-packs [{:id "gem-100" :gems 100}]
+              :payments [{:id "pi-1" :status "pending"}]
               :friendships [{:a "did:me" :b "did:friend"}]
               :friend-requests [{:id "in" :sender "did:new" :recipient "did:me"
                                  :status "pending" :created_at 1}
@@ -140,11 +188,13 @@
     (is (= ["hat" "skin"] (mapv :item (:inventory/items hud))))
     (is (= [false true] (mapv :entitlement (:inventory/items hud))))
     (is (= [true false] (mapv :affordable? (:store/products hud))))
+    (is (= ["gem-100"] (mapv :id (:store/gem-packs hud))))
+    (is (= ["pi-1"] (mapv :id (:store/payments hud))))
     (is (= ["did:friend"] (:social/friends hud)))
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
     (is (= ["did:me" "did:friend"]
            (mapv :player (get-in hud [:social/group-members "guild"]))))
-    (is (= [1 2 2 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [1 2 3 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest friendship-and-group-lifecycle
   (let [base (social/platform-state)
