@@ -309,6 +309,45 @@
            (mapv :player (get-in hud [:social/group-members "guild"]))))
     (is (= [1 2 3 1 2 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
+(deftest guild-event-contribution-ranking-and-rewards
+  (let [event (social/guild-event
+               #:event{:id "raid-1" :game "gftd/drive" :starts-at 10 :ends-at 20
+                       :target 1000
+                       :reward-tiers [{:through 1 :free-gem-per-contributor 100}
+                                      {:through 3 :free-gem-per-contributor 25}]})
+        state (social/guild-event-state event)
+        contribution (fn [id guild player amount]
+                       #:contribution{:submission id :guild guild :player player
+                                      :amount amount :verified true
+                                      :member-verified true :at 12})]
+    (is (= :guild-event-not-active
+           (second (social/contribute-guild-event state event 9
+                                                  (contribution "early" "g1" "a" 5)))))
+    (is (= :contribution-unverified
+           (second (social/contribute-guild-event
+                    state event 12 (assoc (contribution "bad" "g1" "a" 5)
+                                          :contribution/verified false)))))
+    (let [[_ state] (social/contribute-guild-event state event 12
+                                                   (contribution "a1" "g1" "a" 40))
+          [_ state] (social/contribute-guild-event state event 13
+                                                   (contribution "b1" "g1" "b" 60))
+          [_ state] (social/contribute-guild-event state event 14
+                                                   (contribution "c1" "g2" "c" 100))]
+      (is (= :duplicate
+             (first (social/contribute-guild-event state event 15
+                                                   (contribution "a1" "g1" "a" 40)))))
+      (is (= [["g1" 100 1] ["g2" 100 1]]
+             (mapv (juxt :guild/id :guild/total :guild/rank)
+                   (social/guild-event-standings state))))
+      (is (= :guild-event-not-closed
+             (second (social/close-guild-event state event 19))))
+      (let [[ok closed] (social/close-guild-event state event 20)]
+        (is (= :ok ok))
+        (is (= {"a" {:free-gem 100 :guild "g1" :rank 1}
+                "b" {:free-gem 100 :guild "g1" :rank 1}
+                "c" {:free-gem 100 :guild "g2" :rank 1}}
+               (:event/rewards closed)))))))
+
 (deftest friendship-and-group-lifecycle
   (let [base (social/platform-state)
         [_ s] (social/request-friend base {:request-id "r" :from "a" :to "b" :at 1})

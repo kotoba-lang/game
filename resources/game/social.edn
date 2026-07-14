@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 9
+ :contract/version 10
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -31,6 +31,12 @@
                 :rating-window true
                 :lifecycle #{:queued :ready :active :declined :expired :complete}
                 :ready-check {:accept :all :decline :requeue-other :timeout true}}
+  :guild-events {:partition [:event/game :event/id]
+                 :admission [:event/active :gameplay/verified :guild-membership/verified]
+                 :contribution {:positive true :idempotency :submission/id}
+                 :ranking {:entity :guild :ties :competition-rank}
+                 :rewards {:eligible :verified-contributors
+                           :currency :free-gem :payout :idempotent}}
   :ranking {:partition [:board/game :board/season]
             :admission [:season/active :score/verified]
             :ties :competition-rank

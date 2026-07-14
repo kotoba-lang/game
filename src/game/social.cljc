@@ -27,6 +27,7 @@
    :mail {}
    :match-queues {}
    :matches {}
+   :guild-events {}
    :inventories {}
    :receipts {}
    :leaderboards {}
@@ -714,6 +715,94 @@
                                           (when-let [reward (reward-for-rank season (:score/rank entry))]
                                             [(:score/player entry) reward])))
                                   ranked)}])))
+
+;; ── guild events and guild competition ─────────────────────────────────────
+
+(defn guild-event
+  "Validate a portable cooperative guild event. Reward tiers are inclusive
+   competition-rank ceilings and reward verified contributors, not players who
+   merely join a guild immediately before closure."
+  [{:event/keys [id game starts-at ends-at target reward-tiers] :as config}]
+  (when (and id game (integer? starts-at) (integer? ends-at) (< starts-at ends-at)
+             (integer? target) (pos? target) (vector? reward-tiers)
+             (every? (fn [{:keys [through free-gem-per-contributor]}]
+                       (and (integer? through) (pos? through)
+                            (integer? free-gem-per-contributor)
+                            (not (neg? free-gem-per-contributor))))
+                     reward-tiers)
+             (apply < 0 (map :through reward-tiers)))
+    config))
+
+(defn guild-event-status [event now]
+  (cond (< now (:event/starts-at event)) :scheduled
+        (< now (:event/ends-at event)) :active
+        :else :closed))
+
+(defn guild-event-state [event]
+  {:event/id (:event/id event)
+   :event/game (:event/game event)
+   :event/contributions {}
+   :event/submissions #{}})
+
+(defn contribute-guild-event
+  "Record one verified positive contribution. The host verifies gameplay and
+   current guild membership; submission IDs make retries idempotent."
+  [state event now {:contribution/keys [submission guild player amount
+                                        verified member-verified at]}]
+  (cond
+    (not= :active (guild-event-status event now)) [:error :guild-event-not-active state]
+    (or (nil? submission) (nil? guild) (nil? player)
+        (not (integer? amount)) (not (pos? amount))) [:error :invalid-contribution state]
+    (not verified) [:error :contribution-unverified state]
+    (not member-verified) [:error :guild-membership-unverified state]
+    (contains? (:event/submissions state) submission) [:duplicate state]
+    :else
+    [:ok (-> state
+             (update :event/submissions conj submission)
+             (update-in [:event/contributions guild :guild/total] (fnil + 0) amount)
+             (assoc-in [:event/contributions guild :guild/id] guild)
+             (update-in [:event/contributions guild :guild/players player :player/total]
+                        (fnil + 0) amount)
+             (assoc-in [:event/contributions guild :guild/players player :player/last-at]
+                       (or at now)))]))
+
+(defn guild-event-standings
+  "Competition ranking by total contribution, with guild ID as deterministic
+   display tie-break without changing tied ranks."
+  [state]
+  (let [sorted (sort-by (juxt (comp - :guild/total) :guild/id)
+                        (vals (:event/contributions state)))]
+    (loop [remaining sorted, index 1, previous ::none, previous-rank 0, out []]
+      (if-let [entry (first remaining)]
+        (let [value (:guild/total entry)
+              rank (if (= value previous) previous-rank index)]
+          (recur (next remaining) (inc index) value rank
+                 (conj out (assoc entry :guild/rank rank))))
+        out))))
+
+(defn- guild-reward-for-rank [event rank]
+  (some #(when (<= rank (:through %)) %) (:event/reward-tiers event)))
+
+(defn close-guild-event
+  "Freeze standings and deterministic contributor rewards after event end.
+   The host durably pays returned player rewards using event+player IDs."
+  [state event now]
+  (if (not= :closed (guild-event-status event now))
+    [:error :guild-event-not-closed]
+    (let [standings (guild-event-standings state)
+          rewards (into {}
+                        (mapcat (fn [{:guild/keys [id rank players]}]
+                                  (let [amount (:free-gem-per-contributor
+                                                (guild-reward-for-rank event rank))]
+                                    (when (pos? (or amount 0))
+                                      (map (fn [player]
+                                             [player {:free-gem amount :guild id :rank rank}])
+                                           (keys players)))))
+                                standings))]
+      [:ok {:event/id (:event/id event)
+            :event/closed-at now
+            :event/standings standings
+            :event/rewards rewards}])))
 
 ;; ── portable platform HUD projection ────────────────────────────────────────
 
