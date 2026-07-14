@@ -58,6 +58,7 @@
 
   Zero-dep portable CLJC - pure data + pure functions, no IO/GPU."
   (:require [game.addons]
+            [game.analytics]
             [game.animation]
             [game.arena]
             [game.battle-royale]
