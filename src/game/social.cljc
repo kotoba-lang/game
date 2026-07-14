@@ -244,6 +244,69 @@
   (let [cmp (if (= :asc (:board/order board)) identity -)]
     (->> (:board/entries board) vals (sort-by (comp cmp :score/value)) vec)))
 
+(defn season
+  "Create a portable season definition. Reward tiers are ordered inclusive
+   rank ceilings, e.g. [{:through 1 :reward {:free-gem 100}} ...]."
+  [{:season/keys [id starts-at ends-at reward-tiers] :as config}]
+  (when (and id (integer? starts-at) (integer? ends-at) (< starts-at ends-at)
+             (vector? reward-tiers)
+             (every? (fn [{:keys [through reward]}]
+                       (and (integer? through) (pos? through) (map? reward)))
+                     reward-tiers)
+             (apply < 0 (map :through reward-tiers)))
+    config))
+
+(defn season-status [season now]
+  (cond (< now (:season/starts-at season)) :scheduled
+        (< now (:season/ends-at season)) :active
+        :else :closed))
+
+(defn submit-season-score
+  "Season-aware form of submit-score. The authoritative host supplies `now`;
+   scheduled/closed seasons reject writes before the normal verified-score
+   and best-score invariants run."
+  [board season now score]
+  (if (= :active (season-status season now))
+    (submit-score board score)
+    [:error :season-not-active board]))
+
+(defn ranked-standings
+  "Deterministic competition ranking. Equal values share rank; the next rank
+   skips accordingly. at then player provide stable display order without
+   changing tie rank."
+  [board]
+  (let [direction (if (= :asc (:board/order board)) identity -)
+        sorted (sort-by (juxt (comp direction :score/value)
+                              #(or (:score/at %) 0) :score/player)
+                        (vals (:board/entries board)))]
+    (loop [remaining sorted, index 1, previous ::none, previous-rank 0, out []]
+      (if-let [entry (first remaining)]
+        (let [value (:score/value entry)
+              rank (if (= value previous) previous-rank index)]
+          (recur (next remaining) (inc index) value rank
+                 (conj out (assoc entry :score/rank rank))))
+        out))))
+
+(defn reward-for-rank [season rank]
+  (some (fn [{:keys [through reward]}] (when (<= rank through) reward))
+        (:season/reward-tiers season)))
+
+(defn close-season
+  "Freeze deterministic standings and reward assignments after the end time.
+   The returned snapshot is pure data; hosts own durable payout idempotency."
+  [board season now]
+  (if (not= :closed (season-status season now))
+    [:error :season-not-closed]
+    (let [ranked (ranked-standings board)]
+      [:ok {:season/id (:season/id season)
+            :season/closed-at now
+            :season/standings ranked
+            :season/rewards (into {}
+                                  (keep (fn [entry]
+                                          (when-let [reward (reward-for-rank season (:score/rank entry))]
+                                            [(:score/player entry) reward])))
+                                  ranked)}])))
+
 (defn admit-chat
   "Validate one player message against room policy and recipient controls.
    Content classification/moderation supplies :message/moderation externally."

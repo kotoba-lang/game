@@ -92,3 +92,25 @@
     (is (= :moderation-rejected
            (second (social/admit-room-message s (assoc (msg "m6" "a" "no")
                                                        :message/moderation :rejected)))))))
+
+(deftest season-ranking-lifecycle-ties-and-rewards
+  (let [season (social/season #:season{:id "s1" :starts-at 10 :ends-at 20
+                                       :reward-tiers [{:through 1 :reward {:free-gem 100}}
+                                                      {:through 3 :reward {:free-gem 25}}]})
+        board (social/leaderboard #:board{:id :weekly :game :drive :season "s1"})
+        score (fn [id player value at]
+                #:score{:submission id :player player :value value :at at :verified true})]
+    (is (= :scheduled (social/season-status season 9)))
+    (is (= :season-not-active
+           (second (social/submit-season-score board season 9 (score "x" "a" 9 9)))))
+    (let [[_ b] (social/submit-season-score board season 12 (score "a" "a" 10 12))
+          [_ b] (social/submit-season-score b season 13 (score "b" "b" 10 13))
+          [_ b] (social/submit-season-score b season 14 (score "c" "c" 8 14))
+          ranked (social/ranked-standings b)]
+      (is (= [["a" 1] ["b" 1] ["c" 3]]
+             (mapv (juxt :score/player :score/rank) ranked)))
+      (is (= :season-not-closed (second (social/close-season b season 19))))
+      (let [[ok snapshot] (social/close-season b season 20)]
+        (is (= :ok ok))
+        (is (= {"a" {:free-gem 100} "b" {:free-gem 100} "c" {:free-gem 25}}
+               (:season/rewards snapshot)))))))
