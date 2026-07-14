@@ -85,6 +85,26 @@
                                              :provider-ref "refund" :verified? true
                                              :refunded-at 3}))))))
 
+(deftest daily-free-gem-reward-is-verified-idempotent-and-streaked
+  (let [claim (fn [state day at]
+                (social/claim-daily-reward state {:player "did:p1" :day day
+                                                  :schedule [10 20 30]
+                                                  :verified? true :claimed-at at}))
+        [_ first-day s] (claim (social/platform-state) 100 1)]
+    (is (= {:reward/day 100 :reward/streak 1 :reward/currency :free-gem
+            :reward/amount 10 :reward/claimed-at 1} first-day))
+    (is (= :duplicate (first (claim s 100 2))))
+    (let [[_ second-day s] (claim s 101 3)]
+      (is (= [2 20] [(:reward/streak second-day) (:reward/amount second-day)]))
+      (let [[_ reset-day s] (claim s 103 4)]
+        (is (= [1 10] [(:reward/streak reset-day) (:reward/amount reset-day)]))
+        (is (= 40 (social/balance (get-in s [:wallets "did:p1"]) :free-gem)))
+        (is (= :stale-reward-day (second (claim s 102 5)))))))
+  (is (= :daily-reward-unverified
+         (second (social/claim-daily-reward
+                  (social/platform-state)
+                  {:player "did:p1" :day 100 :verified? false :claimed-at 1})))))
+
 (deftest ranking-and-chat-contracts
   (let [b (social/leaderboard #:board{:id :weekly :game :drive :season "2026-W29"})
         [_ b] (social/submit-score b #:score{:submission "s1" :player "did:p1"
@@ -174,6 +194,8 @@
                          {:id "premium" :currency "paid-gem" :price 10}]
               :gem-packs [{:id "gem-100" :gems 100}]
               :payments [{:id "pi-1" :status "pending"}]
+              :server-day 101
+              :daily-reward {:day 100 :streak 2 :amount 10}
               :friendships [{:a "did:me" :b "did:friend"}]
               :friend-requests [{:id "in" :sender "did:new" :recipient "did:me"
                                  :status "pending" :created_at 1}
@@ -185,6 +207,8 @@
                               {:group_id "guild" :player "did:me"
                                :role "owner" :joined_at 1}]})]
     (is (= {:free-gem 80 :paid-gem 5} (:wallet/balances hud)))
+    (is (:wallet/daily-claimable? hud))
+    (is (= 2 (get-in hud [:wallet/daily-reward :streak])))
     (is (= ["hat" "skin"] (mapv :item (:inventory/items hud))))
     (is (= [false true] (mapv :entitlement (:inventory/items hud))))
     (is (= [true false] (mapv :affordable? (:store/products hud))))

@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 6
+ :contract/version 7
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -14,6 +14,10 @@
              :payment #{:pending :settled :refunded}
              :settlement {:verified true :idempotent true}
              :refund {:full true :spent-balance :manual-review}}
+  :daily-reward {:clock :host-verified-utc-day
+                 :currency :free-gem
+                 :idempotency [:player :day]
+                 :streak {:missed-day :restart :schedule :cyclic}}
   :ranking {:partition [:board/game :board/season]
             :admission [:season/active :score/verified]
             :ties :competition-rank
