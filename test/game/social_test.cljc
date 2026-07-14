@@ -282,6 +282,9 @@
                      {:id "mail-old" :status "claimed" :created_at 1}]
               :match-queue {:id "q1" :status "queued"}
               :matches [{:id "m1" :status "ready"}]
+              :guild-events [{:id "raid-1" :status "active"}]
+              :guild-standings [{:event_id "raid-1" :guild "g2" :total 80 :rank 2}
+                                {:event_id "raid-1" :guild "g1" :total 100 :rank 1}]
               :friendships [{:a "did:me" :b "did:friend"}]
               :friend-requests [{:id "in" :sender "did:new" :recipient "did:me"
                                  :status "pending" :created_at 1}
@@ -303,11 +306,14 @@
     (is (= ["mail-1"] (mapv :id (:mail/inbox hud))))
     (is (= "q1" (get-in hud [:matchmaking/queue :id])))
     (is (= ["m1"] (mapv :id (:matchmaking/matches hud))))
+    (is (= ["raid-1"] (mapv :id (:guild-events/items hud))))
+    (is (= ["g1" "g2"]
+           (mapv :guild (get-in hud [:guild-events/standings "raid-1"]))))
     (is (= ["did:friend"] (:social/friends hud)))
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
     (is (= ["did:me" "did:friend"]
            (mapv :player (get-in hud [:social/group-members "guild"]))))
-    (is (= [1 2 3 1 2 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [1 2 3 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest guild-event-contribution-ranking-and-rewards
   (let [event (social/guild-event
