@@ -426,6 +426,8 @@
               :payments [{:id "pi-1" :status "pending"}]
               :server-day 101
               :daily-reward {:day 100 :streak 2 :amount 10}
+              :economy-debts [{:currency "paid-gem" :amount 80}]
+              :economy-holds [{:capability "store" :reason "economy-debt"}]
               :mail [{:id "mail-1" :status "pending" :created_at 2}
                      {:id "mail-old" :status "claimed" :created_at 1}]
               :match-queue {:id "q1" :status "queued"}
@@ -446,6 +448,8 @@
     (is (= {:free-gem 80 :paid-gem 5} (:wallet/balances hud)))
     (is (:wallet/daily-claimable? hud))
     (is (= 2 (get-in hud [:wallet/daily-reward :streak])))
+    (is (= 80 (get-in hud [:wallet/debts 0 :amount])))
+    (is (:wallet/restricted? hud))
     (is (= ["hat" "skin"] (mapv :item (:inventory/items hud))))
     (is (= [false true] (mapv :entitlement (:inventory/items hud))))
     (is (= [true false] (mapv :affordable? (:store/products hud))))
