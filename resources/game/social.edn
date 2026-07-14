@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 12
+ :contract/version 13
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -11,6 +11,14 @@
                  :unlock :immutable}
   :activity {:append-only true :idempotency :activity/id
              :visibility #{:public :friends :private}}
+  :notifications {:kinds #{:achievement :friend-request :party-invite :group :match
+                           :mail :purchase :payment :ranking :guild-event :system}
+                  :idempotency :notification/id
+                  :source-link :notification/source-id
+                  :inbox {:ordering [:unread :newest :id]
+                          :max-page-size 100}
+                  :lifecycle #{:unread :read :dismissed :expired}
+                  :recipient-only true}
   :save {:concurrency :optimistic-revision}
   :wallet {:currencies #{:free-gem :paid-gem}
            :idempotency :tx/id
