@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 11
+ :contract/version 12
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -37,8 +37,12 @@
   :matchmaking {:partition [:game :mode :region]
                 :ordering [:joined-at :player]
                 :rating-window true
+                :party {:invite #{:pending :accepted :declined :expired}
+                        :queue-snapshot true :leader-only true :ready-check :all-members}
                 :lifecycle #{:queued :ready :active :declined :expired :complete}
-                :ready-check {:accept :all :decline :requeue-other :timeout true}}
+                :ready-check {:accept :all :decline :requeue-other :timeout true}
+                :reconnect {:grace-window :host-clock :resume true}
+                :leave-penalty {:scope :player :queue-cooldown true}}
   :guild-events {:partition [:event/game :event/id]
                  :admission [:event/active :gameplay/verified :guild-membership/verified]
                  :contribution {:positive true :idempotency :submission/id}
