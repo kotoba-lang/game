@@ -19,6 +19,10 @@
 
 (defn platform-state []
   {:platform/version 1
+   :profiles {}
+   :achievement-progress {}
+   :achievement-unlocks {}
+   :activity-events {}
    :saves {}
    :wallets {}
    :payment-intents {}
@@ -37,6 +41,80 @@
    :blocks #{}
    :groups {}
    :rooms {}})
+
+(def profile-visibilities #{:public :friends :private})
+
+(defn update-player-profile
+  "Apply a bounded portable profile patch. Identity ownership and text
+   moderation remain host responsibilities; equipped titles must already be
+   unlocked by this player's verified achievements."
+  [state player {:keys [display-name bio avatar visibility equipped-title] :as patch}]
+  (let [unlocked (get-in state [:achievement-unlocks player] {})]
+    (cond
+      (or (nil? player) (not (string? display-name)) (empty? display-name)
+          (> (count display-name) 32) (not (string? bio)) (> (count bio) 160)
+          (and avatar (or (not (string? avatar)) (> (count avatar) 512)))
+          (not (contains? profile-visibilities visibility)))
+      [:error :invalid-profile state]
+      (and equipped-title
+           (not-any? #(= equipped-title (:achievement/title %)) (vals unlocked)))
+      [:error :title-not-unlocked state]
+      :else [:ok (assoc-in state [:profiles player]
+                           (merge #:player{:did player} patch))])))
+
+(defn achievement
+  "Validate a cross-game achievement. Reducer :sum accumulates verified event
+   values; :max keeps a personal best."
+  [{:achievement/keys [id game metric reducer threshold title] :as definition}]
+  (when (and id game metric (contains? #{:sum :max} reducer)
+             (number? threshold) (pos? threshold)
+             (string? title) (not (empty? title)) (<= (count title) 48))
+    definition))
+
+(defn observe-achievement
+  "Consume one host-verified gameplay/economy/social event. Event IDs make
+   progress retries idempotent and unlock is immutable once reached."
+  [state definition {:event/keys [id player game metric value verified at]}]
+  (let [achievement-id (:achievement/id definition)
+        path [:achievement-progress player achievement-id]
+        progress (get-in state path {:achievement/value 0 :achievement/events #{}})]
+    (cond
+      (or (nil? id) (nil? player) (not (number? value)) (neg? value))
+      [:error :invalid-achievement-event state]
+      (not verified) [:error :achievement-event-unverified state]
+      (or (not= game (:achievement/game definition))
+          (not= metric (:achievement/metric definition)))
+      [:error :achievement-event-mismatch state]
+      (contains? (:achievement/events progress) id) [:duplicate state]
+      :else
+      (let [next-value ((if (= :max (:achievement/reducer definition)) max +)
+                        (:achievement/value progress) value)
+            unlocked? (>= next-value (:achievement/threshold definition))
+            progress' {:achievement/value next-value
+                       :achievement/events (conj (:achievement/events progress) id)
+                       :achievement/updated-at at}
+            state' (assoc-in state path progress')]
+        [:ok (cond-> state'
+               unlocked? (assoc-in [:achievement-unlocks player achievement-id]
+                                   #:achievement{:id achievement-id
+                                                 :game (:achievement/game definition)
+                                                 :title (:achievement/title definition)
+                                                 :unlocked-at at}))]))))
+
+(defn record-activity
+  "Append an immutable, idempotent activity event with explicit visibility."
+  [state {:activity/keys [id player kind visibility at] :as event}]
+  (cond
+    (or (nil? id) (nil? player) (nil? kind) (not (integer? at))
+        (not (contains? profile-visibilities visibility)))
+    [:error :invalid-activity state]
+    (contains? (:activity-events state) id) [:duplicate state]
+    :else [:ok (assoc-in state [:activity-events id] event)]))
+
+(defn visible-activity?
+  [viewer friends? {:activity/keys [player visibility]}]
+  (or (= viewer player) (= :public visibility)
+      (and (= :friends visibility) friends?)))
 
 (defn pair
   "Canonical undirected player pair."
@@ -816,7 +894,7 @@
    D1/HTTP, native storage, or an in-memory state; renderers consume this shape
    instead of learning a provider's wire rows. Unknown fields are ignored so
    old clients can read newer snapshots."
-  [{:keys [did balances transactions inventory receipts products
+  [{:keys [did profile achievements activity balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
            mail match-queue matches guild-events guild-standings
            friend-requests friendships blocks groups group-members]
@@ -852,6 +930,9 @@
                             (sort-by :id) vec)]
     {:hud/version 1
      :player/did did
+     :profile/data profile
+     :profile/achievements (vec (sort-by :unlocked_at > achievements))
+     :profile/activity (vec (sort-by :at > activity))
      :wallet/balances wallet-balances
      :wallet/transactions (vec transactions)
      :wallet/daily-reward daily-reward
@@ -882,7 +963,8 @@
                                              (assoc m group-id
                                                     (vec (sort-by :joined_at members))))
                                            {}))
-     :hud/tabs [{:tab/id :wallet :tab/count (count transactions)}
+     :hud/tabs [{:tab/id :profile :tab/count (count achievements)}
+                {:tab/id :wallet :tab/count (count transactions)}
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
                 {:tab/id :mail :tab/count (count inbox)}

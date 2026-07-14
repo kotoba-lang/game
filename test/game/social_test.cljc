@@ -12,6 +12,39 @@
            (second (social/put-save s {:player "did:p1" :game "g/a" :expected-rev 0
                                        :data {} :updated-at 11}))))))
 
+(deftest cross-game-profile-achievement-title-and-activity
+  (let [definition (social/achievement
+                    #:achievement{:id "drive-100" :game "gftd/drive" :metric :score
+                                  :reducer :sum :threshold 100 :title "Road Runner"})
+        event (fn [id value verified]
+                #:event{:id id :player "did:p1" :game "gftd/drive" :metric :score
+                        :value value :verified verified :at 10})
+        state (social/platform-state)]
+    (is (= :achievement-event-unverified
+           (second (social/observe-achievement state definition (event "bad" 100 false)))))
+    (let [[_ state] (social/observe-achievement state definition (event "a" 40 true))
+          [_ state] (social/observe-achievement state definition (event "b" 60 true))]
+      (is (= :duplicate
+             (first (social/observe-achievement state definition (event "b" 60 true)))))
+      (is (= "Road Runner"
+             (get-in state [:achievement-unlocks "did:p1" "drive-100" :achievement/title])))
+      (is (= :title-not-unlocked
+             (second (social/update-player-profile state "did:p1"
+                                                   {:display-name "P1" :bio "hi" :avatar nil
+                                                    :visibility :public
+                                                    :equipped-title "Unknown"}))))
+      (let [[_ state] (social/update-player-profile state "did:p1"
+                                                    {:display-name "P1" :bio "hi" :avatar nil
+                                                     :visibility :friends
+                                                     :equipped-title "Road Runner"})
+            activity #:activity{:id "act-1" :player "did:p1" :kind :achievement
+                                :visibility :friends :at 11}
+            [_ state] (social/record-activity state activity)]
+        (is (= "Road Runner" (get-in state [:profiles "did:p1" :equipped-title])))
+        (is (social/visible-activity? "did:p2" true activity))
+        (is (not (social/visible-activity? "did:p2" false activity)))
+        (is (= :duplicate (first (social/record-activity state activity))))))))
+
 (deftest wallet-is-idempotent-and-non-negative
   (let [[_ credited] (social/apply-transaction (social/wallet)
                                                #:tx{:id "award-1" :currency :free-gem
@@ -266,6 +299,9 @@
 (deftest platform-hud-projects-provider-snapshot
   (let [hud (social/platform-hud-model
              {:did "did:me"
+              :profile {:display_name "Me" :equipped_title "Road Runner"}
+              :achievements [{:id "a1" :unlocked_at 4}]
+              :activity [{:id "act1" :at 5}]
               :balances [{:currency "free-gem" :balance 80}
                          {:currency :paid-gem :balance 5}]
               :transactions [{:id "tx1"}]
@@ -313,7 +349,9 @@
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
     (is (= ["did:me" "did:friend"]
            (mapv :player (get-in hud [:social/group-members "guild"]))))
-    (is (= [1 2 3 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= "Me" (get-in hud [:profile/data :display_name])))
+    (is (= ["a1"] (mapv :id (:profile/achievements hud))))
+    (is (= [1 1 2 3 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest guild-event-contribution-ranking-and-rewards
   (let [event (social/guild-event
