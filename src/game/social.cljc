@@ -1112,6 +1112,7 @@
    old clients can read newer snapshots."
   [{:keys [did profile achievements activity balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
+           economy-debts economy-holds
            mail notifications match-queue matches guild-events guild-standings
            friend-requests friendships blocks groups group-members
            party-invites match-penalty match-connections]
@@ -1163,6 +1164,9 @@
      :wallet/daily-reward daily-reward
      :wallet/server-day server-day
      :wallet/daily-claimable? (not= server-day (:day daily-reward))
+     :wallet/debts (vec economy-debts)
+     :wallet/holds (vec economy-holds)
+     :wallet/restricted? (boolean (seq economy-holds))
      :inventory/items owned-items
      :store/products product-models
      :store/receipts (vec receipts)
