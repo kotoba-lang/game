@@ -86,6 +86,7 @@
             [game.sabiotoshi]
             [game.scene]
             [game.sprite]
+            [game.subscription]
             [game.terrain]
             [game.trigger]
             [game.voxel]
