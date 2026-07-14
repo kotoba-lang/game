@@ -1,0 +1,18 @@
+{:contract/id :kotoba.game/social
+ :contract/version 1
+ :runtime :cljc
+ :capabilities
+ {:identity {:key :player/did}
+  :save {:concurrency :optimistic-revision}
+  :wallet {:currencies #{:free-gem :paid-gem}
+           :idempotency :tx/id
+           :negative-balance false}
+  :inventory {:models #{:quantity :entitlement}}
+  :store {:atomic [:wallet/debit :inventory/grant :receipt/write]
+          :idempotency :receipt/id}
+  :ranking {:partition [:board/game :board/season]
+            :admission :score/verified}
+  :chat {:admission [:block :length :moderation]}}
+ :host-responsibilities
+ #{:persistence :clock :identity-proof :score-verification
+   :payment-verification :content-moderation :transport}}
