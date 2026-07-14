@@ -21,6 +21,8 @@
   {:platform/version 1
    :saves {}
    :wallets {}
+   :payment-intents {}
+   :refunds {}
    :inventories {}
    :receipts {}
    :leaderboards {}
@@ -254,6 +256,84 @@
              (seq grants))
     p))
 
+(def fiat-currencies #{:jpy :usd :eur})
+
+(defn gem-pack
+  "Validate a provider-neutral paid-gem pack. Fiat amounts use minor units;
+   provider product/price IDs stay in the host adapter."
+  [{:pack/keys [id gems fiat-currency fiat-amount] :as pack}]
+  (when (and id (integer? gems) (pos? gems)
+             (contains? fiat-currencies fiat-currency)
+             (integer? fiat-amount) (pos? fiat-amount))
+    pack))
+
+(defn create-payment-intent
+  "Reserve one immutable player/pack purchase. Creating the same intent ID is
+   idempotent; payment-provider checkout creation remains a host concern."
+  [state {:keys [intent-id player pack created-at]}]
+  (cond
+    (contains? (:payment-intents state) intent-id)
+    [:duplicate (get-in state [:payment-intents intent-id]) state]
+    (or (nil? intent-id) (nil? player) (nil? (gem-pack pack)))
+    [:error :invalid-payment-intent state]
+    :else
+    (let [intent #:payment{:id intent-id :player player :pack pack
+                           :status :pending :created-at created-at}]
+      [:ok intent (assoc-in state [:payment-intents intent-id] intent)])))
+
+(defn settle-payment
+  "Credit paid gems exactly once after the host verifies provider authenticity,
+   amount, currency, pack mapping, and successful state."
+  [state {:keys [intent-id provider-ref verified? settled-at]}]
+  (let [intent (get-in state [:payment-intents intent-id])]
+    (cond
+      (nil? intent) [:error :payment-intent-not-found state]
+      (= :settled (:payment/status intent)) [:duplicate intent state]
+      (not= :pending (:payment/status intent)) [:error :payment-not-pending state]
+      (or (not verified?) (nil? provider-ref)) [:error :payment-unverified state]
+      :else
+      (let [player (:payment/player intent)
+            gems (get-in intent [:payment/pack :pack/gems])
+            tx #:tx{:id (str "payment/" intent-id) :currency :paid-gem
+                    :amount gems :kind :payment :at settled-at :ref provider-ref}
+            [status wallet] (apply-transaction (get-in state [:wallets player] (wallet)) tx)]
+        (if (not= :ok status)
+          [:error :payment-credit-failed state]
+          (let [settled (assoc intent :payment/status :settled
+                               :payment/provider-ref provider-ref
+                               :payment/settled-at settled-at)]
+            [:ok settled (-> state
+                             (assoc-in [:wallets player] wallet)
+                             (assoc-in [:payment-intents intent-id] settled))]))))))
+
+(defn refund-payment
+  "Reverse a settled paid-gem pack once after a verified provider refund. If
+   gems were already spent, automatic refund is refused for host review."
+  [state {:keys [refund-id intent-id provider-ref verified? refunded-at]}]
+  (let [intent (get-in state [:payment-intents intent-id])]
+    (cond
+      (contains? (:refunds state) refund-id)
+      [:duplicate (get-in state [:refunds refund-id]) state]
+      (or (nil? refund-id) (nil? intent)) [:error :payment-intent-not-found state]
+      (not= :settled (:payment/status intent)) [:error :payment-not-settled state]
+      (or (not verified?) (nil? provider-ref)) [:error :refund-unverified state]
+      :else
+      (let [player (:payment/player intent)
+            gems (get-in intent [:payment/pack :pack/gems])
+            tx #:tx{:id (str "refund/" refund-id) :currency :paid-gem
+                    :amount (- gems) :kind :payment-refund :at refunded-at :ref provider-ref}
+            [status x] (apply-transaction (get-in state [:wallets player] (wallet)) tx)]
+        (if (= status :error)
+          [:error :refund-balance-spent state]
+          (let [refund #:refund{:id refund-id :payment intent-id :player player
+                                :gems gems :provider-ref provider-ref :at refunded-at}
+                refunded (assoc intent :payment/status :refunded
+                                 :payment/refunded-at refunded-at)]
+            [:ok refund (-> state
+                            (assoc-in [:wallets player] x)
+                            (assoc-in [:payment-intents intent-id] refunded)
+                            (assoc-in [:refunds refund-id] refund))]))))))
+
 (defn purchase
   "Atomically debit a wallet and grant a catalog product. receipt-id is the
    idempotency key; payment providers remain outside this pure contract."
@@ -396,7 +476,8 @@
    instead of learning a provider's wire rows. Unknown fields are ignored so
    old clients can read newer snapshots."
   [{:keys [did balances transactions inventory receipts products
-           friend-requests friendships blocks groups group-members] :as _snapshot}]
+           gem-packs payments friend-requests friendships blocks groups group-members]
+    :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
                                 (zipmap currencies (repeat 0)) balances)
@@ -430,6 +511,8 @@
      :inventory/items owned-items
      :store/products product-models
      :store/receipts (vec receipts)
+     :store/gem-packs (vec gem-packs)
+     :store/payments (vec payments)
      :social/friends friend-ids
      :social/pending-in pending-in
      :social/pending-out pending-out
@@ -443,7 +526,7 @@
                                            {}))
      :hud/tabs [{:tab/id :wallet :tab/count (count transactions)}
                 {:tab/id :inventory :tab/count (count owned-items)}
-                {:tab/id :store :tab/count (count product-models)}
+                {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
                 {:tab/id :friends :tab/count (+ (count friend-ids) (count pending-in))}
                 {:tab/id :groups :tab/count (count groups)}]}))
 

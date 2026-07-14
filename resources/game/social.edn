@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 5
+ :contract/version 6
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -10,6 +10,10 @@
   :inventory {:models #{:quantity :entitlement}}
   :store {:atomic [:wallet/debit :inventory/grant :receipt/write]
           :idempotency :receipt/id}
+  :commerce {:gem-pack {:wallet-currency :paid-gem :fiat-unit :minor}
+             :payment #{:pending :settled :refunded}
+             :settlement {:verified true :idempotent true}
+             :refund {:full true :spent-balance :manual-review}}
   :ranking {:partition [:board/game :board/season]
             :admission [:season/active :score/verified]
             :ties :competition-rank
