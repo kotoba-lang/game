@@ -818,7 +818,8 @@
    old clients can read newer snapshots."
   [{:keys [did balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
-           mail match-queue matches friend-requests friendships blocks groups group-members]
+           mail match-queue matches guild-events guild-standings
+           friend-requests friendships blocks groups group-members]
     :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
@@ -864,6 +865,12 @@
      :mail/inbox inbox
      :matchmaking/queue match-queue
      :matchmaking/matches (vec matches)
+     :guild-events/items (vec guild-events)
+     :guild-events/standings (->> guild-standings
+                                  (group-by :event_id)
+                                  (reduce-kv (fn [m event-id rows]
+                                               (assoc m event-id (vec (sort-by :rank rows))))
+                                             {}))
      :social/friends friend-ids
      :social/pending-in pending-in
      :social/pending-out pending-out
@@ -880,6 +887,7 @@
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
                 {:tab/id :mail :tab/count (count inbox)}
                 {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches))}
+                {:tab/id :guild-events :tab/count (count guild-events)}
                 {:tab/id :friends :tab/count (+ (count friend-ids) (count pending-in))}
                 {:tab/id :groups :tab/count (count groups)}]}))
 

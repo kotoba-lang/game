@@ -52,7 +52,7 @@
          :admission [:membership :block :length :moderation :duplicate]
          :history :bounded}
   :platform-hud {:projection :platform-hud-model
-                 :tabs [:wallet :inventory :store :friends :groups]
+                 :tabs [:wallet :inventory :store :mail :match :guild-events :friends :groups]
                  :provider-neutral true}}
  :host-responsibilities
  #{:persistence :clock :identity-proof :score-verification
