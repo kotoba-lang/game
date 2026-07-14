@@ -1113,7 +1113,7 @@
   [{:keys [did profile achievements activity balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
            economy-debts economy-holds
-           mail notifications match-queue matches guild-events guild-standings
+           saves mail notifications match-queue matches guild-events guild-standings
            friend-requests friendships blocks groups group-members
            party-invites match-penalty match-connections]
     :as _snapshot}]
@@ -1172,6 +1172,7 @@
      :store/receipts (vec receipts)
      :store/gem-packs (vec gem-packs)
      :store/payments (vec payments)
+     :saves/items (vec (sort-by :game saves))
      :mail/inbox inbox
      :notifications/items notification-inbox
      :notifications/unread (count (remove :read_at notification-inbox))
@@ -1205,6 +1206,7 @@
                 {:tab/id :wallet :tab/count (count transactions)}
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
+                {:tab/id :saves :tab/count (count saves)}
                 {:tab/id :mail :tab/count (count inbox)}
                 {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches)
                                               (count (filter #(= "pending" (:status %))

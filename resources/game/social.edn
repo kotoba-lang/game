@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 13
+ :contract/version 14
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -72,7 +72,7 @@
          :admission [:membership :block :length :moderation :duplicate]
          :history :bounded}
   :platform-hud {:projection :platform-hud-model
-                 :tabs [:notifications :profile :wallet :inventory :store :mail :match
+                 :tabs [:notifications :profile :wallet :inventory :store :saves :mail :match
                         :guild-events :friends :groups]
                  :provider-neutral true}}
  :host-responsibilities
