@@ -23,3 +23,8 @@
       #:event{:id "x" :kind :play :amount 1 :verified? false}))))
   (is (= :expired (missions/status (missions/state) (first defs) 100))))
 
+(deftest item-and-entitlement-rewards-validate
+  (is (missions/valid-definition?
+       #:mission{:id :item :event :score :target 1 :starts-at 1 :ends-at 2
+                 :prerequisites #{}
+                 :rewards {:items [{:item "badge" :entitlement true}]}})))

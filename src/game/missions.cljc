@@ -5,12 +5,24 @@
 
 (def contract-version 1)
 
+(defn- valid-rewards? [rewards]
+  (and (map? rewards)
+       (every? (fn [[k value]] (or (= k :items) (pos-int? value))) rewards)
+       (or (nil? (:items rewards))
+           (and (vector? (:items rewards))
+                (every? #(and (string? (:item %)) (seq (:item %))
+                              (or (nil? (:quantity %)) (pos-int? (:quantity %)))
+                              (or (nil? (:entitlement %)) (boolean? (:entitlement %))))
+                        (:items rewards))))
+       (or (some (fn [[k value]] (and (not= k :items) (pos-int? value))) rewards)
+           (seq (:items rewards)))))
+
 (defn valid-definition?
   [{:mission/keys [id event target starts-at ends-at prerequisites rewards]}]
   (and (keyword? id) (keyword? event) (integer? target) (pos? target)
        (integer? starts-at) (integer? ends-at) (< starts-at ends-at)
        (set? prerequisites) (every? keyword? prerequisites)
-       (map? rewards) (every? pos-int? (vals rewards))))
+       (valid-rewards? rewards)))
 
 (defn catalog [definitions]
   (let [by-id (into {} (map (juxt :mission/id identity)) definitions)]
@@ -59,4 +71,3 @@
       :else [:ok (:mission/rewards definition)
              (-> s (update :claims conj id)
                  (assoc-in [:claim-references id] {:claim/id claim-id :player player :at now}))])))
-

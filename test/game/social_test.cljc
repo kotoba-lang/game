@@ -468,7 +468,7 @@
     (is (= "Me" (get-in hud [:profile/data :display_name])))
     (is (= ["a1"] (mapv :id (:profile/achievements hud))))
     (is (= [] (:saves/items hud)))
-    (is (= [0 1 1 2 3 0 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [0 1 1 2 3 0 0 0 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest platform-hud-projects-cloud-save-heads
   (let [hud (social/platform-hud-model
@@ -478,6 +478,18 @@
            (mapv :game (:saves/items hud))))
     (is (= 2 (->> (:hud/tabs hud)
                   (filter #(= :saves (:tab/id %))) first :tab/count)))))
+
+(deftest platform-hud-projects-missions-and-battle-pass
+  (let [hud (social/platform-hud-model
+             {:missions [{:id "m2" :starts_at 2 :claimed_at 10}
+                         {:id "m1" :starts_at 1 :claimed_at nil}]
+              :battle-pass {:id "s1" :xp 15}
+              :battle-pass-tiers [{:level 2 :xp 20} {:level 1 :xp 10}]
+              :battle-pass-claims [{:level 1 :track "free"}]})]
+    (is (= ["m1" "m2"] (mapv :id (:missions/items hud))))
+    (is (= "s1" (get-in hud [:battle-pass/data :id])))
+    (is (= [1 2] (mapv :level (:battle-pass/tiers hud))))
+    (is (= #{[1 "free"]} (:battle-pass/claims hud)))))
 
 (deftest guild-event-contribution-ranking-and-rewards
   (let [event (social/guild-event
