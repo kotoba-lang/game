@@ -325,6 +325,8 @@
                                   (assoc m (currency-key currency) (or balance 0)))
                                 (zipmap currencies (repeat 0)) balances)
         owned-items (->> inventory
+                         (map #(update % :entitlement
+                                       (fn [value] (or (true? value) (= 1 value)))))
                          (filter #(or (pos? (or (:quantity %) 0))
                                       (true? (:entitlement %))))
                          (sort-by :item) vec)

@@ -121,9 +121,9 @@
               :balances [{:currency "free-gem" :balance 80}
                          {:currency :paid-gem :balance 5}]
               :transactions [{:id "tx1"}]
-              :inventory [{:item "hat" :quantity 1 :entitlement false}
-                          {:item "skin" :quantity 0 :entitlement true}
-                          {:item "spent" :quantity 0 :entitlement false}]
+              :inventory [{:item "hat" :quantity 1 :entitlement 0}
+                          {:item "skin" :quantity 0 :entitlement 1}
+                          {:item "spent" :quantity 0 :entitlement 0}]
               :products [{:id "cheap" :currency "free-gem" :price 30}
                          {:id "premium" :currency "paid-gem" :price 10}]
               :friendships [{:a "did:me" :b "did:friend"}]
@@ -134,6 +134,7 @@
               :groups [{:id "guild"}]})]
     (is (= {:free-gem 80 :paid-gem 5} (:wallet/balances hud)))
     (is (= ["hat" "skin"] (mapv :item (:inventory/items hud))))
+    (is (= [false true] (mapv :entitlement (:inventory/items hud))))
     (is (= [true false] (mapv :affordable? (:store/products hud))))
     (is (= ["did:friend"] (:social/friends hud)))
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
