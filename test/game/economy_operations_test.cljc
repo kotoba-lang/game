@@ -46,6 +46,7 @@
         [_ _ s2] (ops/approve-adjustment s1 "cb1" "operator" 2 "a2")
         [_ result s3] (ops/apply-adjustment s2 ops/default-policy "cb1" 20 3 "operator" "a3")]
     (is (zero? (:balance result))) (is (= 80 (:debt result)))
+    (is (= -20 (get-in result [:transaction :amount])))
     (is (= 80 (get-in s3 [:debts "p"])))
     (is (= #{:store :gift} (get-in s3 [:holds "p" :hold/capabilities])))
     (let [[_ remaining s4] (ops/repay-debt s3 "p" 80 4 "operator" "a4")]
