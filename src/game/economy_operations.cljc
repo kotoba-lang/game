@@ -147,7 +147,8 @@
                              :debt-created debt}))]
         [:ok {:balance next-balance :debt debt :transaction
               {:id (str "adjustment:" adjustment-id) :currency (:adjustment/currency record)
-               :amount amount :kind (:adjustment/kind record) :ref (:adjustment/source-ref record)
+               :amount (- next-balance balance) :kind (:adjustment/kind record)
+               :ref (:adjustment/source-ref record)
                :at applied-at}} next]))))
 
 (defn repay-debt [state player amount at actor audit-id]
