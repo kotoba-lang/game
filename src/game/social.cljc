@@ -24,7 +24,99 @@
    :inventories {}
    :receipts {}
    :leaderboards {}
-   :chat []})
+   :chat []
+   :friendships #{}
+   :friend-requests {}
+   :blocks #{}
+   :groups {}
+   :rooms {}})
+
+(defn pair
+  "Canonical undirected player pair."
+  [a b]
+  (when (and a b (not= a b)) (vec (sort [a b]))))
+
+(defn blocked?
+  "True when either player has blocked the other."
+  [state a b]
+  (or (contains? (:blocks state) [a b])
+      (contains? (:blocks state) [b a])))
+
+(defn request-friend
+  [state {:keys [request-id from to at]}]
+  (let [p (pair from to)]
+    (cond
+      (or (nil? request-id) (nil? p)) [:error :invalid-friend-request state]
+      (contains? (:friend-requests state) request-id) [:duplicate state]
+      (blocked? state from to) [:error :blocked state]
+      (contains? (:friendships state) p) [:error :already-friends state]
+      :else [:ok (assoc-in state [:friend-requests request-id]
+                           {:request/id request-id :request/from from :request/to to
+                            :request/status :pending :request/at at})])))
+
+(defn answer-friend
+  [state {:keys [request-id player accept? at]}]
+  (let [request (get-in state [:friend-requests request-id])]
+    (cond
+      (nil? request) [:error :request-not-found state]
+      (not= :pending (:request/status request)) [:duplicate state]
+      (not= player (:request/to request)) [:error :not-request-recipient state]
+      (blocked? state (:request/from request) player) [:error :blocked state]
+      :else
+      (let [status (if accept? :accepted :declined)
+            state' (assoc-in state [:friend-requests request-id]
+                             (assoc request :request/status status :request/answered-at at))]
+        [:ok (cond-> state' accept?
+               (update :friendships conj (pair (:request/from request) player)))]))))
+
+(defn block-player
+  "Directional block. Blocking also removes friendship and pending requests
+   between the pair, so a stale invitation cannot recreate the relationship."
+  [state blocker blocked at]
+  (if-let [p (pair blocker blocked)]
+    [:ok (-> state
+             (update :blocks conj [blocker blocked])
+             (update :friendships disj p)
+             (update :friend-requests
+                     (fn [requests]
+                       (into {} (remove (fn [[_ r]]
+                                          (and (= :pending (:request/status r))
+                                               (= p (pair (:request/from r) (:request/to r))))))
+                             requests)))
+             (assoc-in [:block-events [blocker blocked]] at))]
+    [:error :invalid-block state]))
+
+(def group-kinds #{:party :guild})
+
+(defn create-group
+  [state {:group/keys [id kind owner capacity] :as group}]
+  (cond
+    (or (nil? id) (nil? owner) (not (contains? group-kinds kind))
+        (not (integer? capacity)) (< capacity 2)) [:error :invalid-group state]
+    (contains? (:groups state) id) [:error :group-exists state]
+    :else [:ok (assoc-in state [:groups id]
+                         (merge group {:group/members {owner :owner}}))]))
+
+(defn join-group
+  [state group-id player role]
+  (let [group (get-in state [:groups group-id])]
+    (cond
+      (nil? group) [:error :group-not-found state]
+      (contains? (:group/members group) player) [:duplicate state]
+      (>= (count (:group/members group)) (:group/capacity group)) [:error :group-full state]
+      (some #(blocked? state player %) (keys (:group/members group))) [:error :blocked state]
+      :else [:ok (assoc-in state [:groups group-id :group/members player] (or role :member))])))
+
+(defn create-room
+  [state {:room/keys [id kind members max-length history-limit] :as room}]
+  (cond
+    (or (nil? id) (not (contains? #{:direct :party :guild :game} kind))
+        (empty? members)) [:error :invalid-room state]
+    (contains? (:rooms state) id) [:error :room-exists state]
+    :else [:ok (assoc-in state [:rooms id]
+                         (merge {:room/max-length 280 :room/history-limit 100
+                                 :room/messages []}
+                                room {:room/members (set members)}))]))
 
 ;; Save data uses optimistic concurrency. A device must write the revision it
 ;; read, preventing a stale tab from silently overwriting newer progression.
@@ -164,3 +256,23 @@
       (contains? (:player/blocked recipient) from) [:error :blocked state]
       (= moderation :rejected) [:error :moderation-rejected state]
       :else [:ok message (update state :chat conj message)])))
+
+(defn admit-room-message
+  "Room-aware chat admission. The host supplies moderation classification,
+   persistence and rate-limit decisions; this transition owns membership,
+   block, length, duplicate and bounded-history invariants."
+  [state {:message/keys [id room from text moderation] :as message}]
+  (let [r (get-in state [:rooms room])
+        members (:room/members r)]
+    (cond
+      (or (nil? id) (nil? r) (nil? from) (not (string? text)) (empty? text))
+      [:error :invalid-message state]
+      (not (contains? members from)) [:error :not-room-member state]
+      (some #(blocked? state from %) (disj members from)) [:error :blocked state]
+      (> (count text) (:room/max-length r)) [:error :message-too-long state]
+      (= moderation :rejected) [:error :moderation-rejected state]
+      (some #(= id (:message/id %)) (:room/messages r)) [:duplicate state]
+      :else
+      (let [messages (->> (conj (:room/messages r) message)
+                          (take-last (:room/history-limit r)) vec)]
+        [:ok message (assoc-in state [:rooms room :room/messages] messages)]))))

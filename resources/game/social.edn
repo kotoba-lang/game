@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 1
+ :contract/version 2
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -12,7 +12,12 @@
           :idempotency :receipt/id}
   :ranking {:partition [:board/game :board/season]
             :admission :score/verified}
-  :chat {:admission [:block :length :moderation]}}
+  :social-graph {:friend-request [:pending :accepted :declined]
+                 :block {:directional true :removes-friendship true}}
+  :groups {:kinds #{:party :guild} :roles true :capacity true}
+  :chat {:rooms #{:direct :party :guild :game}
+         :admission [:membership :block :length :moderation :duplicate]
+         :history :bounded}}
  :host-responsibilities
  #{:persistence :clock :identity-proof :score-verification
    :payment-verification :content-moderation :transport}}
