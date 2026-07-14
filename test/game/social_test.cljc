@@ -147,6 +147,46 @@
     (is (= 10 (social/balance (get-in claimed [:wallets "b"]) :free-gem)))
     (is (= 2 (get-in claimed [:inventories "b" :inventory/items :potion])))))
 
+(deftest matchmaking-queue-ready-decline-and-timeout
+  (let [entry (fn [id player rating joined]
+                #:queue{:id id :player player :game "g/drive" :mode :casual
+                        :region :global :rating rating :joined-at joined})
+        [_ _ s] (social/enqueue-match (social/platform-state) (entry "q1" "a" 1000 1))
+        [_ _ s] (social/enqueue-match s (entry "q2" "b" 1100 2))
+        [_ match s] (social/form-match s {:match-id "m1" :now 3 :ready-until 30
+                                          :rating-window 200})]
+    (is (= ["a" "b"] (:match/players match)))
+    (is (= :already-queued (second (social/enqueue-match s (entry "q3" "a" 1000 4)))))
+    (let [[_ waiting s] (social/answer-match s {:match-id "m1" :player "a"
+                                                :accept? true :at 4})]
+      (is (= #{"a"} (:match/accepted waiting)))
+      (let [[_ active s] (social/answer-match s {:match-id "m1" :player "b"
+                                                 :accept? true :at 5})]
+        (is (= :active (:match/status active)))
+        (is (= :duplicate (first (social/answer-match
+                                  s {:match-id "m1" :player "b" :accept? true :at 6})))))))
+  (let [entry (fn [id player] #:queue{:id id :player player :game "g/x" :mode :ranked
+                                       :region :jp :rating 1000 :joined-at 1})
+        [_ _ s] (social/enqueue-match (social/platform-state) (entry "qa" "a"))
+        [_ _ s] (social/enqueue-match s (entry "qb" "b"))
+        [_ _ s] (social/form-match s {:match-id "decline" :now 2 :ready-until 20})
+        [_ declined s] (social/answer-match s {:match-id "decline" :player "a"
+                                               :accept? false :at 3})]
+    (is (= :declined (:match/status declined)))
+    (is (= :cancelled (get-in s [:match-queues "qa" :queue/status])))
+    (is (= :queued (get-in s [:match-queues "qb" :queue/status]))))
+  (let [entry (fn [id player] #:queue{:id id :player player :game "g/x" :mode :casual
+                                       :region :global :rating 1000 :joined-at 1})
+        [_ _ s] (social/enqueue-match (social/platform-state) (entry "qx" "x"))
+        [_ _ s] (social/enqueue-match s (entry "qy" "y"))
+        [_ _ s] (social/form-match s {:match-id "timeout" :now 2 :ready-until 20})
+        [_ _ s] (social/answer-match s {:match-id "timeout" :player "x"
+                                        :accept? true :at 3})
+        [_ expired s] (social/expire-match s "timeout" 20)]
+    (is (= :expired (:match/status expired)))
+    (is (= :queued (get-in s [:match-queues "qx" :queue/status])))
+    (is (= :cancelled (get-in s [:match-queues "qy" :queue/status])))))
+
 (deftest ranking-and-chat-contracts
   (let [b (social/leaderboard #:board{:id :weekly :game :drive :season "2026-W29"})
         [_ b] (social/submit-score b #:score{:submission "s1" :player "did:p1"
@@ -240,6 +280,8 @@
               :daily-reward {:day 100 :streak 2 :amount 10}
               :mail [{:id "mail-1" :status "pending" :created_at 2}
                      {:id "mail-old" :status "claimed" :created_at 1}]
+              :match-queue {:id "q1" :status "queued"}
+              :matches [{:id "m1" :status "ready"}]
               :friendships [{:a "did:me" :b "did:friend"}]
               :friend-requests [{:id "in" :sender "did:new" :recipient "did:me"
                                  :status "pending" :created_at 1}
@@ -259,11 +301,13 @@
     (is (= ["gem-100"] (mapv :id (:store/gem-packs hud))))
     (is (= ["pi-1"] (mapv :id (:store/payments hud))))
     (is (= ["mail-1"] (mapv :id (:mail/inbox hud))))
+    (is (= "q1" (get-in hud [:matchmaking/queue :id])))
+    (is (= ["m1"] (mapv :id (:matchmaking/matches hud))))
     (is (= ["did:friend"] (:social/friends hud)))
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
     (is (= ["did:me" "did:friend"]
            (mapv :player (get-in hud [:social/group-members "guild"]))))
-    (is (= [1 2 3 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [1 2 3 1 2 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest friendship-and-group-lifecycle
   (let [base (social/platform-state)

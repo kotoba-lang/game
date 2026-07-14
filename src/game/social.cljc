@@ -25,6 +25,8 @@
    :refunds {}
    :daily-rewards {}
    :mail {}
+   :match-queues {}
+   :matches {}
    :inventories {}
    :receipts {}
    :leaderboards {}
@@ -388,6 +390,118 @@
             [:ok expired (assoc-in state [:wallets (:mail/sender message)] wallet)])
           [:ok expired state])))))
 
+(def queue-statuses #{:queued :matched :cancelled})
+(def match-statuses #{:ready :active :declined :expired :complete})
+
+(defn enqueue-match
+  [state {:queue/keys [id player game mode region rating joined-at] :as entry}]
+  (let [existing (some #(when (and (= player (:queue/player %))
+                                   (contains? #{:queued :matched} (:queue/status %))) %)
+                       (vals (:match-queues state)))]
+    (cond
+      (contains? (:match-queues state) id) [:duplicate (get-in state [:match-queues id]) state]
+      existing [:error :already-queued state]
+      (or (nil? id) (nil? player) (nil? game) (nil? mode) (nil? region)
+          (not (integer? rating)) (neg? rating) (not (integer? joined-at)))
+      [:error :invalid-queue-entry state]
+      :else
+      (let [queued (assoc entry :queue/status :queued)]
+        [:ok queued (assoc-in state [:match-queues id] queued)]))))
+
+(defn cancel-match-queue
+  [state player cancelled-at]
+  (if-let [entry (some #(when (and (= player (:queue/player %))
+                                   (= :queued (:queue/status %))) %)
+                       (vals (:match-queues state)))]
+    (let [cancelled (assoc entry :queue/status :cancelled :queue/cancelled-at cancelled-at)]
+      [:ok cancelled (assoc-in state [:match-queues (:queue/id entry)] cancelled)])
+    [:duplicate state]))
+
+(defn- compatible-queue? [a b rating-window]
+  (and (= (:queue/game a) (:queue/game b))
+       (= (:queue/mode a) (:queue/mode b))
+       (= (:queue/region a) (:queue/region b))
+       (<= (#?(:clj Math/abs :cljs js/Math.abs)
+            (- (:queue/rating a) (:queue/rating b))) rating-window)))
+
+(defn form-match
+  "Pair the oldest queued player with the oldest compatible player. IDs,
+   clocks and rating window are authoritative host inputs."
+  [state {:keys [match-id now ready-until rating-window]
+          :or {rating-window 200}}]
+  (let [queued (->> (:match-queues state) vals
+                    (filter #(= :queued (:queue/status %)))
+                    (sort-by (juxt :queue/joined-at :queue/player)) vec)
+        pair (some (fn [a]
+                     (when-let [b (first (filter #(and (not= (:queue/id a) (:queue/id %))
+                                                       (compatible-queue? a % rating-window))
+                                                queued))]
+                       [a b]))
+                   queued)]
+    (cond
+      (contains? (:matches state) match-id) [:duplicate (get-in state [:matches match-id]) state]
+      (or (nil? match-id) (not (integer? now)) (not (integer? ready-until))
+          (<= ready-until now) (not (integer? rating-window)) (neg? rating-window))
+      [:error :invalid-match state]
+      (nil? pair) [:waiting state]
+      :else
+      (let [[a b] pair
+            match #:match{:id match-id :game (:queue/game a) :mode (:queue/mode a)
+                          :region (:queue/region a) :players [(:queue/player a) (:queue/player b)]
+                          :queues [(:queue/id a) (:queue/id b)] :accepted #{}
+                          :status :ready :created-at now :ready-until ready-until}
+            state (reduce (fn [s queue-id]
+                            (assoc-in s [:match-queues queue-id :queue/status] :matched))
+                          state (:match/queues match))]
+        [:ok match (assoc-in state [:matches match-id] match)]))))
+
+(defn answer-match
+  [state {:keys [match-id player accept? at]}]
+  (let [match (get-in state [:matches match-id])]
+    (cond
+      (nil? match) [:error :match-not-found state]
+      (not= :ready (:match/status match)) [:duplicate match state]
+      (not (some #{player} (:match/players match))) [:error :not-match-player state]
+      (>= at (:match/ready-until match)) [:error :match-ready-expired state]
+      (contains? (:match/accepted match) player) [:duplicate match state]
+      (not accept?)
+      (let [match (assoc match :match/status :declined :match/declined-by player
+                         :match/resolved-at at)
+            state (reduce (fn [s queue-id]
+                            (let [entry (get-in s [:match-queues queue-id])]
+                              (assoc-in s [:match-queues queue-id]
+                                        (assoc entry :queue/status
+                                               (if (= player (:queue/player entry)) :cancelled :queued)
+                                               :queue/joined-at at))))
+                          state (:match/queues match))]
+        [:ok match (assoc-in state [:matches match-id] match)])
+      :else
+      (let [accepted (conj (:match/accepted match) player)
+            active? (= (set (:match/players match)) accepted)
+            match (cond-> (assoc match :match/accepted accepted)
+                    active? (assoc :match/status :active :match/started-at at))]
+        [:ok match (assoc-in state [:matches match-id] match)]))))
+
+(defn expire-match
+  [state match-id now]
+  (let [match (get-in state [:matches match-id])]
+    (cond
+      (nil? match) [:error :match-not-found state]
+      (not= :ready (:match/status match)) [:duplicate match state]
+      (< now (:match/ready-until match)) [:error :match-not-expired state]
+      :else
+      (let [accepted (:match/accepted match)
+            match (assoc match :match/status :expired :match/resolved-at now)
+            state (reduce (fn [s queue-id]
+                            (let [entry (get-in s [:match-queues queue-id])]
+                              (assoc-in s [:match-queues queue-id]
+                                        (assoc entry :queue/status
+                                               (if (contains? accepted (:queue/player entry))
+                                                 :queued :cancelled)
+                                               :queue/joined-at now))))
+                          state (:match/queues match))]
+        [:ok match (assoc-in state [:matches match-id] match)]))))
+
 (defn product
   [{:product/keys [id currency price grants] :as p}]
   (when (and id (contains? currencies currency) (integer? price) (pos? price)
@@ -615,7 +729,7 @@
    old clients can read newer snapshots."
   [{:keys [did balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
-           mail friend-requests friendships blocks groups group-members]
+           mail match-queue matches friend-requests friendships blocks groups group-members]
     :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
@@ -659,6 +773,8 @@
      :store/gem-packs (vec gem-packs)
      :store/payments (vec payments)
      :mail/inbox inbox
+     :matchmaking/queue match-queue
+     :matchmaking/matches (vec matches)
      :social/friends friend-ids
      :social/pending-in pending-in
      :social/pending-out pending-out
@@ -674,6 +790,7 @@
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
                 {:tab/id :mail :tab/count (count inbox)}
+                {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches))}
                 {:tab/id :friends :tab/count (+ (count friend-ids) (count pending-in))}
                 {:tab/id :groups :tab/count (count groups)}]}))
 

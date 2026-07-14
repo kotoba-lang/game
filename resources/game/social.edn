@@ -1,5 +1,5 @@
 {:contract/id :kotoba.game/social
- :contract/version 8
+ :contract/version 9
  :runtime :cljc
  :capabilities
  {:identity {:key :player/did}
@@ -26,6 +26,11 @@
                 :paid-gem false
                 :entitlement false
                 :expiry-refund true}}
+  :matchmaking {:partition [:game :mode :region]
+                :ordering [:joined-at :player]
+                :rating-window true
+                :lifecycle #{:queued :ready :active :declined :expired :complete}
+                :ready-check {:accept :all :decline :requeue-other :timeout true}}
   :ranking {:partition [:board/game :board/season]
             :admission [:season/active :score/verified]
             :ties :competition-rank
