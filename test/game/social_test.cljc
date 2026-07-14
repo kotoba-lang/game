@@ -467,7 +467,17 @@
            (mapv :player (get-in hud [:social/group-members "guild"]))))
     (is (= "Me" (get-in hud [:profile/data :display_name])))
     (is (= ["a1"] (mapv :id (:profile/achievements hud))))
-    (is (= [0 1 1 2 3 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [] (:saves/items hud)))
+    (is (= [0 1 1 2 3 0 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+
+(deftest platform-hud-projects-cloud-save-heads
+  (let [hud (social/platform-hud-model
+             {:saves [{:game "gftd/drive" :rev 2}
+                      {:game "gftd/ghosthacker-echoes" :rev 5}]})]
+    (is (= ["gftd/drive" "gftd/ghosthacker-echoes"]
+           (mapv :game (:saves/items hud))))
+    (is (= 2 (->> (:hud/tabs hud)
+                  (filter #(= :saves (:tab/id %))) first :tab/count)))))
 
 (deftest guild-event-contribution-ranking-and-rewards
   (let [event (social/guild-event
