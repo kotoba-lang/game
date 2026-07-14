@@ -23,6 +23,7 @@
    :wallets {}
    :payment-intents {}
    :refunds {}
+   :daily-rewards {}
    :inventories {}
    :receipts {}
    :leaderboards {}
@@ -234,6 +235,45 @@
                    (update-in [:wallet/balances currency] + amount)
                    (update :wallet/transactions conj tx)
                    (update :wallet/applied conj id))]))
+
+(def default-daily-reward-schedule [10 10 15 15 20 25 50])
+
+(defn daily-reward-schedule
+  [schedule]
+  (when (and (vector? schedule) (seq schedule)
+             (every? #(and (integer? %) (pos? %)) schedule))
+    schedule))
+
+(defn claim-daily-reward
+  "Claim one host-verified UTC day. Consecutive days advance the streak and
+   cycle through the schedule; a missed day restarts at day one."
+  [state {:keys [player day schedule verified? claimed-at]
+          :or {schedule default-daily-reward-schedule}}]
+  (let [reward-state (get-in state [:daily-rewards player]
+                             {:reward/last-day nil :reward/streak 0 :reward/claims {}})
+        last-day (:reward/last-day reward-state)]
+    (cond
+      (or (nil? player) (not (integer? day)) (nil? (daily-reward-schedule schedule)))
+      [:error :invalid-daily-reward state]
+      (not verified?) [:error :daily-reward-unverified state]
+      (contains? (:reward/claims reward-state) day)
+      [:duplicate (get-in reward-state [:reward/claims day]) state]
+      (and last-day (< day last-day)) [:error :stale-reward-day state]
+      :else
+      (let [streak (if (= last-day (dec day)) (inc (:reward/streak reward-state)) 1)
+            amount (nth schedule (mod (dec streak) (count schedule)))
+            claim #:reward{:day day :streak streak :currency :free-gem
+                           :amount amount :claimed-at claimed-at}
+            tx #:tx{:id (str "daily/" player "/" day) :currency :free-gem
+                    :amount amount :kind :daily-reward :at claimed-at :ref (str day)}
+            [status wallet] (apply-transaction (get-in state [:wallets player] (wallet)) tx)]
+        (if (not= :ok status)
+          [:error :daily-reward-credit-failed state]
+          [:ok claim (-> state
+                         (assoc-in [:wallets player] wallet)
+                         (assoc-in [:daily-rewards player :reward/last-day] day)
+                         (assoc-in [:daily-rewards player :reward/streak] streak)
+                         (assoc-in [:daily-rewards player :reward/claims day] claim))])))))
 
 (defn inventory [] {:inventory/items {} :inventory/entitlements #{}})
 
@@ -476,7 +516,8 @@
    instead of learning a provider's wire rows. Unknown fields are ignored so
    old clients can read newer snapshots."
   [{:keys [did balances transactions inventory receipts products
-           gem-packs payments friend-requests friendships blocks groups group-members]
+           gem-packs payments daily-reward server-day
+           friend-requests friendships blocks groups group-members]
     :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
@@ -508,6 +549,9 @@
      :player/did did
      :wallet/balances wallet-balances
      :wallet/transactions (vec transactions)
+     :wallet/daily-reward daily-reward
+     :wallet/server-day server-day
+     :wallet/daily-claimable? (not= server-day (:day daily-reward))
      :inventory/items owned-items
      :store/products product-models
      :store/receipts (vec receipts)
