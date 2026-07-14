@@ -1114,6 +1114,7 @@
            gem-packs payments daily-reward server-day
            economy-debts economy-holds
            saves missions battle-pass battle-pass-tiers battle-pass-claims
+           subscription-plans subscriptions
            mail notifications match-queue matches guild-events guild-standings
            friend-requests friendships blocks groups group-members
            party-invites match-penalty match-connections]
@@ -1178,6 +1179,8 @@
      :battle-pass/data battle-pass
      :battle-pass/tiers (vec (sort-by :level battle-pass-tiers))
      :battle-pass/claims (set (map (juxt :level :track) battle-pass-claims))
+     :subscription/plans (vec (sort-by :id subscription-plans))
+     :subscription/items (vec (sort-by (juxt :plan :started_at) subscriptions))
      :mail/inbox inbox
      :notifications/items notification-inbox
      :notifications/unread (count (remove :read_at notification-inbox))
@@ -1214,6 +1217,7 @@
                 {:tab/id :saves :tab/count (count saves)}
                 {:tab/id :missions :tab/count (count (remove :claimed_at missions))}
                 {:tab/id :battle-pass :tab/count (if battle-pass 1 0)}
+                {:tab/id :membership :tab/count (count subscriptions)}
                 {:tab/id :mail :tab/count (count inbox)}
                 {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches)
                                               (count (filter #(= "pending" (:status %))

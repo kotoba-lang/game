@@ -24,6 +24,11 @@
            :idempotency :tx/id
            :negative-balance false}
   :inventory {:models #{:quantity :entitlement}}
+  :subscription {:namespace game.subscription
+                 :access-statuses #{:active :grace}
+                 :events #{:started :renewed :canceled :payment-failed :recovered
+                           :refunded :revoked}
+                 :entitlement-source :verified-provider-event}
   :store {:atomic [:wallet/debit :inventory/grant :receipt/write]
           :idempotency :receipt/id}
   :commerce {:gem-pack {:wallet-currency :paid-gem :fiat-unit :minor}
@@ -72,7 +77,7 @@
          :admission [:membership :block :length :moderation :duplicate]
          :history :bounded}
   :platform-hud {:projection :platform-hud-model
-                 :tabs [:notifications :profile :wallet :inventory :store :saves :missions :battle-pass :mail :match
+                 :tabs [:notifications :profile :wallet :inventory :store :saves :missions :battle-pass :membership :mail :match
                         :guild-events :friends :groups]
                  :provider-neutral true}}
  :host-responsibilities

@@ -468,7 +468,7 @@
     (is (= "Me" (get-in hud [:profile/data :display_name])))
     (is (= ["a1"] (mapv :id (:profile/achievements hud))))
     (is (= [] (:saves/items hud)))
-    (is (= [0 1 1 2 3 0 0 0 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [0 1 1 2 3 0 0 0 0 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest platform-hud-projects-cloud-save-heads
   (let [hud (social/platform-hud-model
@@ -490,6 +490,15 @@
     (is (= "s1" (get-in hud [:battle-pass/data :id])))
     (is (= [1 2] (mapv :level (:battle-pass/tiers hud))))
     (is (= #{[1 "free"]} (:battle-pass/claims hud)))))
+
+(deftest platform-hud-projects-memberships
+  (let [hud (social/platform-hud-model
+             {:subscription-plans [{:id "plus" :title "Isekai Plus"}]
+              :subscriptions [{:plan "plus" :status "active" :started_at 10}]})]
+    (is (= ["plus"] (mapv :id (:subscription/plans hud))))
+    (is (= "active" (get-in hud [:subscription/items 0 :status])))
+    (is (= 1 (->> (:hud/tabs hud)
+                  (filter #(= :membership (:tab/id %))) first :tab/count)))))
 
 (deftest guild-event-contribution-ranking-and-rewards
   (let [event (social/guild-event
