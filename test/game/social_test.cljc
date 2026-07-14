@@ -39,6 +39,17 @@
   (is (= :invalid-notification-query
          (second (social/notification-inbox (social/platform-state) "did:a" 1 101)))))
 
+(deftest platform-hud-projects-notification-badge-and-inbox
+  (let [model (social/platform-hud-model
+               {:did "did:a"
+                :notifications [{:id "read" :created_at 30 :read_at 31}
+                                {:id "unread" :created_at 20 :read_at nil}
+                                {:id "dismissed" :created_at 40 :dismissed_at 41}]})]
+    (is (= ["unread" "read"] (mapv :id (:notifications/items model))))
+    (is (= 1 (:notifications/unread model)))
+    (is (= {:tab/id :notifications :tab/count 1}
+           (first (:hud/tabs model))))))
+
 (deftest saves-are-revisioned
   (let [[ok save s] (social/put-save (social/platform-state)
                                      {:player "did:p1" :game "g/a" :expected-rev 0
@@ -452,7 +463,7 @@
            (mapv :player (get-in hud [:social/group-members "guild"]))))
     (is (= "Me" (get-in hud [:profile/data :display_name])))
     (is (= ["a1"] (mapv :id (:profile/achievements hud))))
-    (is (= [1 1 2 3 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [0 1 1 2 3 1 2 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest guild-event-contribution-ranking-and-rewards
   (let [event (social/guild-event

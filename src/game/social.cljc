@@ -1112,7 +1112,7 @@
    old clients can read newer snapshots."
   [{:keys [did profile achievements activity balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
-           mail match-queue matches guild-events guild-standings
+           mail notifications match-queue matches guild-events guild-standings
            friend-requests friendships blocks groups group-members
            party-invites match-penalty match-connections]
     :as _snapshot}]
@@ -1138,6 +1138,13 @@
         inbox (->> mail
                    (filter #(= "pending" (:status %)))
                    (sort-by :created_at >) vec)
+        notification-inbox (->> notifications
+                                (remove :dismissed_at)
+                                (sort-by (fn [notification]
+                                           [(if (:read_at notification) 1 0)
+                                            (- (or (:created_at notification) 0))
+                                            (str (:id notification))]))
+                                vec)
         product-models (->> products
                             (map (fn [{:keys [currency price] :as p}]
                                    (let [currency (currency-key currency)]
@@ -1162,6 +1169,8 @@
      :store/gem-packs (vec gem-packs)
      :store/payments (vec payments)
      :mail/inbox inbox
+     :notifications/items notification-inbox
+     :notifications/unread (count (remove :read_at notification-inbox))
      :matchmaking/queue match-queue
      :matchmaking/matches (vec matches)
      :matchmaking/penalty match-penalty
@@ -1184,7 +1193,9 @@
                                              (assoc m group-id
                                                     (vec (sort-by :joined_at members))))
                                            {}))
-     :hud/tabs [{:tab/id :profile
+     :hud/tabs [{:tab/id :notifications
+                 :tab/count (count (remove :read_at notification-inbox))}
+                {:tab/id :profile
                  :tab/count (count (filter #(or (:unlocked_at %)
                                                 (:achievement/unlocked-at %)) achievements))}
                 {:tab/id :wallet :tab/count (count transactions)}

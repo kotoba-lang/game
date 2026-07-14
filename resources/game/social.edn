@@ -72,7 +72,8 @@
          :admission [:membership :block :length :moderation :duplicate]
          :history :bounded}
   :platform-hud {:projection :platform-hud-model
-                 :tabs [:profile :wallet :inventory :store :mail :match :guild-events :friends :groups]
+                 :tabs [:notifications :profile :wallet :inventory :store :mail :match
+                        :guild-events :friends :groups]
                  :provider-neutral true}}
  :host-responsibilities
  #{:persistence :clock :identity-proof :score-verification
