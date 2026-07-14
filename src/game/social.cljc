@@ -29,8 +29,10 @@
    :refunds {}
    :daily-rewards {}
    :mail {}
+   :party-invites {}
    :match-queues {}
    :matches {}
+   :match-penalties {}
    :guild-events {}
    :inventories {}
    :receipts {}
@@ -471,23 +473,85 @@
             [:ok expired (assoc-in state [:wallets (:mail/sender message)] wallet)])
           [:ok expired state])))))
 
-(def queue-statuses #{:queued :matched :cancelled})
+(def queue-statuses #{:queued :matched :active :cancelled})
 (def match-statuses #{:ready :active :declined :expired :complete})
+
+(def party-invite-statuses #{:pending :accepted :declined :expired})
+
+(defn invite-party
+  "Create an expiring invitation. Party owners and moderators may invite;
+   identity proof and delivery are host responsibilities."
+  [state {:invite/keys [id party from to created-at expires-at] :as invite}]
+  (let [group (get-in state [:groups party])
+        role (get-in group [:group/members from])]
+    (cond
+      (contains? (:party-invites state) id)
+      [:duplicate (get-in state [:party-invites id]) state]
+      (or (nil? id) (nil? to) (not= :party (:group/kind group))
+          (not (contains? #{:owner :moderator} role))
+          (not (integer? created-at)) (not (integer? expires-at))
+          (<= expires-at created-at)) [:error :invalid-party-invite state]
+      (contains? (:group/members group) to) [:error :already-party-member state]
+      (>= (count (:group/members group)) (:group/capacity group)) [:error :group-full state]
+      (some #(blocked? state to %) (keys (:group/members group))) [:error :blocked state]
+      :else (let [invite (assoc invite :invite/status :pending)]
+              [:ok invite (assoc-in state [:party-invites id] invite)]))))
+
+(defn answer-party-invite
+  [state {:keys [invite-id player accept? at]}]
+  (let [invite (get-in state [:party-invites invite-id])]
+    (cond
+      (nil? invite) [:error :invite-not-found state]
+      (not= player (:invite/to invite)) [:error :not-invite-recipient state]
+      (not= :pending (:invite/status invite)) [:duplicate invite state]
+      (>= at (:invite/expires-at invite))
+      (let [expired (assoc invite :invite/status :expired :invite/answered-at at)]
+        [:error :invite-expired (assoc-in state [:party-invites invite-id] expired)])
+      (not accept?)
+      (let [declined (assoc invite :invite/status :declined :invite/answered-at at)]
+        [:ok declined (assoc-in state [:party-invites invite-id] declined)])
+      :else
+      (let [[status reason-or-state joined-state]
+            (join-group state (:invite/party invite) player :member)]
+        (if (= :ok status)
+          (let [accepted (assoc invite :invite/status :accepted :invite/answered-at at)]
+            [:ok accepted (assoc-in reason-or-state [:party-invites invite-id] accepted)])
+          [:error reason-or-state (or joined-state state)])))))
+
+(defn match-penalty-active?
+  [state player now]
+  (> (get-in state [:match-penalties player :penalty/until] 0) now))
+
+(defn- queue-players [entry]
+  (vec (or (:queue/players entry) [(:queue/player entry)])))
 
 (defn enqueue-match
   [state {:queue/keys [id player game mode region rating joined-at] :as entry}]
-  (let [existing (some #(when (and (= player (:queue/player %))
+  (let [players (queue-players entry)
+        existing (some #(when (and (some (set players) (queue-players %))
                                    (contains? #{:queued :matched} (:queue/status %))) %)
                        (vals (:match-queues state)))]
     (cond
       (contains? (:match-queues state) id) [:duplicate (get-in state [:match-queues id]) state]
       existing [:error :already-queued state]
+      (some #(match-penalty-active? state % joined-at) players) [:error :match-penalty-active state]
       (or (nil? id) (nil? player) (nil? game) (nil? mode) (nil? region)
-          (not (integer? rating)) (neg? rating) (not (integer? joined-at)))
+          (not (integer? rating)) (neg? rating) (not (integer? joined-at))
+          (empty? players) (some nil? players) (not= (count players) (count (set players))))
       [:error :invalid-queue-entry state]
       :else
-      (let [queued (assoc entry :queue/status :queued)]
+      (let [queued (assoc entry :queue/players players :queue/status :queued)]
         [:ok queued (assoc-in state [:match-queues id] queued)]))))
+
+(defn enqueue-party-match
+  "Snapshot a party into one queue unit. Only its owner can queue the party."
+  [state {:queue/keys [party player] :as entry}]
+  (let [group (get-in state [:groups party])]
+    (cond
+      (not= :party (:group/kind group)) [:error :party-not-found state]
+      (not= :owner (get-in group [:group/members player])) [:error :not-party-leader state]
+      :else (enqueue-match state (assoc entry :queue/players
+                                        (vec (sort (keys (:group/members group)))))))))
 
 (defn cancel-match-queue
   [state player cancelled-at]
@@ -527,8 +591,9 @@
       (nil? pair) [:waiting state]
       :else
       (let [[a b] pair
+            players (vec (concat (queue-players a) (queue-players b)))
             match #:match{:id match-id :game (:queue/game a) :mode (:queue/mode a)
-                          :region (:queue/region a) :players [(:queue/player a) (:queue/player b)]
+                          :region (:queue/region a) :players players
                           :queues [(:queue/id a) (:queue/id b)] :accepted #{}
                           :status :ready :created-at now :ready-until ready-until}
             state (reduce (fn [s queue-id]
@@ -552,7 +617,7 @@
                             (let [entry (get-in s [:match-queues queue-id])]
                               (assoc-in s [:match-queues queue-id]
                                         (assoc entry :queue/status
-                                               (if (= player (:queue/player entry)) :cancelled :queued)
+                                               (if (some #{player} (queue-players entry)) :cancelled :queued)
                                                :queue/joined-at at))))
                           state (:match/queues match))]
         [:ok match (assoc-in state [:matches match-id] match)])
@@ -560,7 +625,13 @@
       (let [accepted (conj (:match/accepted match) player)
             active? (= (set (:match/players match)) accepted)
             match (cond-> (assoc match :match/accepted accepted)
-                    active? (assoc :match/status :active :match/started-at at))]
+                    active? (assoc :match/status :active :match/started-at at
+                                   :match/connections (zipmap (:match/players match)
+                                                              (repeat {:connection/status :connected}))))
+            state (if active?
+                    (reduce #(assoc-in %1 [:match-queues %2 :queue/status] :active)
+                            state (:match/queues match))
+                    state)]
         [:ok match (assoc-in state [:matches match-id] match)]))))
 
 (defn expire-match
@@ -577,11 +648,63 @@
                             (let [entry (get-in s [:match-queues queue-id])]
                               (assoc-in s [:match-queues queue-id]
                                         (assoc entry :queue/status
-                                               (if (contains? accepted (:queue/player entry))
+                                               (if (every? accepted (queue-players entry))
                                                  :queued :cancelled)
                                                :queue/joined-at now))))
                           state (:match/queues match))]
         [:ok match (assoc-in state [:matches match-id] match)]))))
+
+(defn disconnect-match-player
+  [state {:keys [match-id player at reconnect-until]}]
+  (let [match (get-in state [:matches match-id])]
+    (cond
+      (not= :active (:match/status match)) [:error :match-not-active state]
+      (not (some #{player} (:match/players match))) [:error :not-match-player state]
+      (or (not (integer? at)) (not (integer? reconnect-until)) (<= reconnect-until at))
+      [:error :invalid-reconnect-window state]
+      (= :disconnected (get-in match [:match/connections player :connection/status]))
+      [:duplicate match state]
+      :else (let [match (assoc-in match [:match/connections player]
+                                  {:connection/status :disconnected
+                                   :connection/disconnected-at at
+                                   :connection/reconnect-until reconnect-until})]
+              [:ok match (assoc-in state [:matches match-id] match)]))))
+
+(defn reconnect-match-player
+  [state {:keys [match-id player at]}]
+  (let [match (get-in state [:matches match-id])
+        connection (get-in match [:match/connections player])]
+    (cond
+      (not= :active (:match/status match)) [:error :match-not-active state]
+      (not= :disconnected (:connection/status connection)) [:duplicate match state]
+      (>= at (:connection/reconnect-until connection)) [:error :reconnect-expired state]
+      :else (let [match (assoc-in match [:match/connections player]
+                                  {:connection/status :connected :connection/reconnected-at at})]
+              [:ok match (assoc-in state [:matches match-id] match)]))))
+
+(defn abandon-match-player
+  "Resolve an expired disconnect or verified early leave and apply a bounded
+   per-player queue cooldown. Replays are idempotent."
+  [state {:keys [match-id player at penalty-until reason]}]
+  (let [match (get-in state [:matches match-id])
+        connection (get-in match [:match/connections player])]
+    (cond
+      (not= :active (:match/status match)) [:error :match-not-active state]
+      (not (some #{player} (:match/players match))) [:error :not-match-player state]
+      (= :abandoned (:connection/status connection)) [:duplicate match state]
+      (or (not (integer? at)) (not (integer? penalty-until)) (<= penalty-until at))
+      [:error :invalid-match-penalty state]
+      (and (= reason :disconnect-timeout)
+           (< at (:connection/reconnect-until connection))) [:error :reconnect-window-active state]
+      :else (let [penalty #:penalty{:player player :match match-id :reason reason
+                                    :at at :until penalty-until}
+                  match (-> match
+                            (assoc-in [:match/connections player]
+                                      {:connection/status :abandoned :connection/abandoned-at at})
+                            (update :match/abandoned (fnil conj #{}) player))]
+              [:ok penalty (-> state
+                               (assoc-in [:matches match-id] match)
+                               (assoc-in [:match-penalties player] penalty))]))))
 
 (defn product
   [{:product/keys [id currency price grants] :as p}]
@@ -899,7 +1022,8 @@
   [{:keys [did profile achievements activity balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
            mail match-queue matches guild-events guild-standings
-           friend-requests friendships blocks groups group-members]
+           friend-requests friendships blocks groups group-members
+           party-invites match-penalty match-connections]
     :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
@@ -949,6 +1073,8 @@
      :mail/inbox inbox
      :matchmaking/queue match-queue
      :matchmaking/matches (vec matches)
+     :matchmaking/penalty match-penalty
+     :matchmaking/connections (vec match-connections)
      :guild-events/items (vec guild-events)
      :guild-events/standings (->> guild-standings
                                   (group-by :event_id)
@@ -960,6 +1086,7 @@
      :social/pending-out pending-out
      :social/blocks (vec blocks)
      :social/groups (vec groups)
+     :social/party-invites (vec party-invites)
      :social/group-members (->> group-members
                                 (group-by :group_id)
                                 (reduce-kv (fn [m group-id members]
@@ -973,7 +1100,9 @@
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
                 {:tab/id :mail :tab/count (count inbox)}
-                {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches))}
+                {:tab/id :match :tab/count (+ (if match-queue 1 0) (count matches)
+                                              (count (filter #(= "pending" (:status %))
+                                                             party-invites)))}
                 {:tab/id :guild-events :tab/count (count guild-events)}
                 {:tab/id :friends :tab/count (+ (count friend-ids) (count pending-in))}
                 {:tab/id :groups :tab/count (count groups)}]}))

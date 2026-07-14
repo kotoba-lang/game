@@ -221,6 +221,69 @@
     (is (= :queued (get-in s [:match-queues "qx" :queue/status])))
     (is (= :cancelled (get-in s [:match-queues "qy" :queue/status])))))
 
+(deftest party-invite-queue-ready-reconnect-and-penalty
+  (let [[_ s] (social/create-group (social/platform-state)
+                                   #:group{:id "party-a" :kind :party :owner "a"
+                                           :capacity 4})
+        [_ invite s] (social/invite-party
+                      s #:invite{:id "i1" :party "party-a" :from "a" :to "b"
+                                 :created-at 1 :expires-at 20})
+        [_ accepted s] (social/answer-party-invite
+                        s {:invite-id "i1" :player "b" :accept? true :at 2})]
+    (is (= :pending (:invite/status invite)))
+    (is (= :accepted (:invite/status accepted)))
+    (is (= :member (get-in s [:groups "party-a" :group/members "b"])))
+    (is (= :not-party-leader
+           (second (social/enqueue-party-match
+                    s #:queue{:id "bad" :party "party-a" :player "b" :game "g/drive"
+                               :mode :ranked :region :jp :rating 1000 :joined-at 3}))))
+    (let [[_ qa s] (social/enqueue-party-match
+                    s #:queue{:id "qa" :party "party-a" :player "a" :game "g/drive"
+                               :mode :ranked :region :jp :rating 1000 :joined-at 3})
+          [_ s] (social/create-group s #:group{:id "party-c" :kind :party :owner "c"
+                                               :capacity 2})
+          [_ s] (social/join-group s "party-c" "d" :member)
+          [_ _ s] (social/enqueue-party-match
+                   s #:queue{:id "qc" :party "party-c" :player "c" :game "g/drive"
+                              :mode :ranked :region :jp :rating 1050 :joined-at 4})
+          [_ match s] (social/form-match s {:match-id "pm" :now 5 :ready-until 20})]
+      (is (= ["a" "b"] (:queue/players qa)))
+      (is (= #{"a" "b" "c" "d"} (set (:match/players match))))
+      (let [[_ _ s] (social/answer-match s {:match-id "pm" :player "a" :accept? true :at 6})
+            [_ _ s] (social/answer-match s {:match-id "pm" :player "b" :accept? true :at 7})
+            [_ _ s] (social/answer-match s {:match-id "pm" :player "c" :accept? true :at 8})
+            [_ active s] (social/answer-match s {:match-id "pm" :player "d" :accept? true :at 9})]
+        (is (= :active (:match/status active)))
+        (let [[_ disconnected s] (social/disconnect-match-player
+                                  s {:match-id "pm" :player "b" :at 10
+                                     :reconnect-until 20})]
+          (is (= :disconnected
+                 (get-in disconnected [:match/connections "b" :connection/status])))
+          (let [[_ reconnected s] (social/reconnect-match-player
+                                   s {:match-id "pm" :player "b" :at 15})]
+            (is (= :connected
+                   (get-in reconnected [:match/connections "b" :connection/status])))
+            (let [[_ _ s] (social/disconnect-match-player
+                           s {:match-id "pm" :player "b" :at 21 :reconnect-until 30})]
+              (is (= :reconnect-window-active
+                     (second (social/abandon-match-player
+                              s {:match-id "pm" :player "b" :at 29 :penalty-until 60
+                                 :reason :disconnect-timeout}))))
+              (let [[_ penalty s] (social/abandon-match-player
+                                   s {:match-id "pm" :player "b" :at 30 :penalty-until 60
+                                      :reason :disconnect-timeout})]
+                (is (= 60 (:penalty/until penalty)))
+                (is (= :match-penalty-active
+                       (second (social/enqueue-match
+                                s #:queue{:id "blocked" :player "b" :game "g/drive"
+                                           :mode :casual :region :jp :rating 1000
+                                           :joined-at 31}))))
+                (is (= :ok
+                       (first (social/enqueue-match
+                               s #:queue{:id "after" :player "b" :game "g/drive"
+                                          :mode :casual :region :jp :rating 1000
+                                          :joined-at 60}))))))))))))
+
 (deftest ranking-and-chat-contracts
   (let [b (social/leaderboard #:board{:id :weekly :game :drive :season "2026-W29"})
         [_ b] (social/submit-score b #:score{:submission "s1" :player "did:p1"
