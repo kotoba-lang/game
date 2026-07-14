@@ -131,11 +131,44 @@
                                  :status "pending" :created_at 1}
                                 {:id "out" :sender "did:me" :recipient "did:other"
                                  :status "pending" :created_at 2}]
-              :groups [{:id "guild"}]})]
+              :groups [{:id "guild"}]
+              :group-members [{:group_id "guild" :player "did:friend"
+                               :role "member" :joined_at 2}
+                              {:group_id "guild" :player "did:me"
+                               :role "owner" :joined_at 1}]})]
     (is (= {:free-gem 80 :paid-gem 5} (:wallet/balances hud)))
     (is (= ["hat" "skin"] (mapv :item (:inventory/items hud))))
     (is (= [false true] (mapv :entitlement (:inventory/items hud))))
     (is (= [true false] (mapv :affordable? (:store/products hud))))
     (is (= ["did:friend"] (:social/friends hud)))
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
+    (is (= ["did:me" "did:friend"]
+           (mapv :player (get-in hud [:social/group-members "guild"]))))
     (is (= [1 2 2 2 1] (mapv :tab/count (:hud/tabs hud))))))
+
+(deftest friendship-and-group-lifecycle
+  (let [base (social/platform-state)
+        [_ s] (social/request-friend base {:request-id "r" :from "a" :to "b" :at 1})
+        [_ s] (social/answer-friend s {:request-id "r" :player "b" :accept? true :at 2})
+        [_ s] (social/remove-friend s "a" "b")]
+    (is (empty? (:friendships s)))
+    (is (empty? (:friend-requests s)))
+    (is (= :duplicate (first (social/remove-friend s "a" "b")))))
+  (let [[_ s] (social/create-group (social/platform-state)
+                                   #:group{:id "g" :kind :guild :owner "a" :capacity 4})
+        [_ s] (social/join-group s "g" "b" :member)
+        [_ s] (social/join-group s "g" "c" :member)]
+    (is (= :owner-transfer-required (second (social/leave-group s "g" "a"))))
+    (let [[_ s] (social/change-group-role s "g" "a" "b" :moderator)]
+      (is (= :insufficient-group-role
+             (second (social/remove-group-member s "g" "c" "b"))))
+      (let [[_ s] (social/remove-group-member s "g" "b" "c")
+            [_ s] (social/transfer-group-owner s "g" "a" "b")]
+        (is (= "b" (get-in s [:groups "g" :group/owner])))
+        (is (= {:moderator "a" :owner "b"}
+               (into {} (map (fn [[player role]] [role player])
+                             (get-in s [:groups "g" :group/members])))))
+        (is (= :not-group-owner
+               (second (social/change-group-role s "g" "a" "b" :member))))
+        (let [[_ s] (social/leave-group s "g" "a")]
+          (is (= {"b" :owner} (get-in s [:groups "g" :group/members]))))))))

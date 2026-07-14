@@ -86,6 +86,23 @@
              (assoc-in [:block-events [blocker blocked]] at))]
     [:error :invalid-block state]))
 
+(defn remove-friend
+  "Remove an existing friendship. Pending requests are also removed so both
+   players return to a clean unrelated state."
+  [state player other]
+  (if-let [p (pair player other)]
+    (if (contains? (:friendships state) p)
+      [:ok (-> state
+               (update :friendships disj p)
+               (update :friend-requests
+                       (fn [requests]
+                         (into {} (remove (fn [[_ request]]
+                                            (= p (pair (:request/from request)
+                                                       (:request/to request)))))
+                               requests))))]
+      [:duplicate state])
+    [:error :invalid-friend state]))
+
 (def group-kinds #{:party :guild})
 
 (defn create-group
@@ -106,6 +123,65 @@
       (>= (count (:group/members group)) (:group/capacity group)) [:error :group-full state]
       (some #(blocked? state player %) (keys (:group/members group))) [:error :blocked state]
       :else [:ok (assoc-in state [:groups group-id :group/members player] (or role :member))])))
+
+(def group-roles #{:owner :moderator :member})
+
+(defn leave-group
+  "A non-owner may leave freely. A sole owner deletes the empty group; an owner
+   with remaining members must transfer ownership first."
+  [state group-id player]
+  (let [group (get-in state [:groups group-id])
+        role (get-in group [:group/members player])]
+    (cond
+      (nil? group) [:error :group-not-found state]
+      (nil? role) [:duplicate state]
+      (and (= :owner role) (> (count (:group/members group)) 1))
+      [:error :owner-transfer-required state]
+      (= :owner role) [:ok (update state :groups dissoc group-id)]
+      :else [:ok (update-in state [:groups group-id :group/members] dissoc player)])))
+
+(defn change-group-role
+  "Only the owner may promote/demote an existing non-owner member. Ownership
+   uses transfer-group-owner so a group can never have zero or two owners."
+  [state group-id actor target role]
+  (let [group (get-in state [:groups group-id])]
+    (cond
+      (nil? group) [:error :group-not-found state]
+      (not= :owner (get-in group [:group/members actor])) [:error :not-group-owner state]
+      (nil? (get-in group [:group/members target])) [:error :member-not-found state]
+      (= :owner (get-in group [:group/members target])) [:error :cannot-change-owner-role state]
+      (not (contains? #{:moderator :member} role)) [:error :invalid-group-role state]
+      (= role (get-in group [:group/members target])) [:duplicate state]
+      :else [:ok (assoc-in state [:groups group-id :group/members target] role)])))
+
+(defn transfer-group-owner
+  [state group-id actor target]
+  (let [group (get-in state [:groups group-id])]
+    (cond
+      (nil? group) [:error :group-not-found state]
+      (not= :owner (get-in group [:group/members actor])) [:error :not-group-owner state]
+      (= actor target) [:duplicate state]
+      (nil? (get-in group [:group/members target])) [:error :member-not-found state]
+      :else [:ok (-> state
+                     (assoc-in [:groups group-id :group/owner] target)
+                     (assoc-in [:groups group-id :group/members actor] :moderator)
+                     (assoc-in [:groups group-id :group/members target] :owner))])))
+
+(defn remove-group-member
+  "Owner may remove moderators/members; moderator may remove members only."
+  [state group-id actor target]
+  (let [group (get-in state [:groups group-id])
+        actor-role (get-in group [:group/members actor])
+        target-role (get-in group [:group/members target])
+        allowed? (or (= :owner actor-role)
+                     (and (= :moderator actor-role) (= :member target-role)))]
+    (cond
+      (nil? group) [:error :group-not-found state]
+      (= actor target) [:error :use-leave-group state]
+      (nil? target-role) [:duplicate state]
+      (= :owner target-role) [:error :cannot-remove-owner state]
+      (not allowed?) [:error :insufficient-group-role state]
+      :else [:ok (update-in state [:groups group-id :group/members] dissoc target)])))
 
 (defn create-room
   [state {:room/keys [id kind members max-length history-limit] :as room}]
@@ -320,7 +396,7 @@
    instead of learning a provider's wire rows. Unknown fields are ignored so
    old clients can read newer snapshots."
   [{:keys [did balances transactions inventory receipts products
-           friend-requests friendships blocks groups] :as _snapshot}]
+           friend-requests friendships blocks groups group-members] :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
                                 (zipmap currencies (repeat 0)) balances)
@@ -359,6 +435,12 @@
      :social/pending-out pending-out
      :social/blocks (vec blocks)
      :social/groups (vec groups)
+     :social/group-members (->> group-members
+                                (group-by :group_id)
+                                (reduce-kv (fn [m group-id members]
+                                             (assoc m group-id
+                                                    (vec (sort-by :joined_at members))))
+                                           {}))
      :hud/tabs [{:tab/id :wallet :tab/count (count transactions)}
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (count product-models)}
