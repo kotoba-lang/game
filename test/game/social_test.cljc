@@ -105,6 +105,48 @@
                   (social/platform-state)
                   {:player "did:p1" :day 100 :verified? false :claimed-at 1})))))
 
+(deftest system-mail-and-friend-gift-are-atomic-and-idempotent
+  (let [[_ wallet] (social/apply-transaction (social/wallet)
+                                             #:tx{:id "seed" :currency :free-gem
+                                                  :amount 50 :kind :seed})
+        state (assoc-in (social/platform-state) [:wallets "a"] wallet)
+        [_ gift sent] (social/send-free-gem-gift
+                       state {:id "gift-1" :sender "a" :recipient "b" :amount 20
+                              :created-at 10 :expires-at 100 :friendship-verified? true})]
+    (is (= :pending (:mail/status gift)))
+    (is (= 30 (social/balance (get-in sent [:wallets "a"]) :free-gem)))
+    (is (= :duplicate (first (social/send-free-gem-gift
+                              sent {:id "gift-1" :sender "a" :recipient "b" :amount 20
+                                    :created-at 10 :expires-at 100
+                                    :friendship-verified? true}))))
+    (is (= :not-mail-recipient
+           (second (social/claim-mail sent {:mail-id "gift-1" :player "c" :now 20}))))
+    (let [[_ claimed received] (social/claim-mail
+                                sent {:mail-id "gift-1" :player "b" :now 20})]
+      (is (= :claimed (:mail/status claimed)))
+      (is (= 20 (social/balance (get-in received [:wallets "b"]) :free-gem)))
+      (is (= :duplicate (first (social/claim-mail
+                                received {:mail-id "gift-1" :player "b" :now 21}))))))
+  (let [[_ wallet] (social/apply-transaction (social/wallet)
+                                             #:tx{:id "seed" :currency :free-gem :amount 20})
+        state (assoc-in (social/platform-state) [:wallets "a"] wallet)
+        [_ _ sent] (social/send-free-gem-gift
+                    state {:id "gift-expire" :sender "a" :recipient "b" :amount 20
+                           :created-at 10 :expires-at 30 :friendship-verified? true})
+        [_ expired refunded] (social/expire-mail sent "gift-expire" 30)]
+    (is (= :expired (:mail/status expired)))
+    (is (= 20 (social/balance (get-in refunded [:wallets "a"]) :free-gem)))
+    (is (= :duplicate (first (social/expire-mail refunded "gift-expire" 31)))))
+  (let [[_ _ state] (social/issue-mail
+                     (social/platform-state)
+                     {:id "system-1" :recipient "b" :kind :system :subject "Launch"
+                      :attachments [{:currency :free-gem :amount 10}
+                                    {:item :potion :quantity 2}]
+                      :created-at 1 :expires-at 100 :verified? true})
+        [_ _ claimed] (social/claim-mail state {:mail-id "system-1" :player "b" :now 2})]
+    (is (= 10 (social/balance (get-in claimed [:wallets "b"]) :free-gem)))
+    (is (= 2 (get-in claimed [:inventories "b" :inventory/items :potion])))))
+
 (deftest ranking-and-chat-contracts
   (let [b (social/leaderboard #:board{:id :weekly :game :drive :season "2026-W29"})
         [_ b] (social/submit-score b #:score{:submission "s1" :player "did:p1"
@@ -196,6 +238,8 @@
               :payments [{:id "pi-1" :status "pending"}]
               :server-day 101
               :daily-reward {:day 100 :streak 2 :amount 10}
+              :mail [{:id "mail-1" :status "pending" :created_at 2}
+                     {:id "mail-old" :status "claimed" :created_at 1}]
               :friendships [{:a "did:me" :b "did:friend"}]
               :friend-requests [{:id "in" :sender "did:new" :recipient "did:me"
                                  :status "pending" :created_at 1}
@@ -214,11 +258,12 @@
     (is (= [true false] (mapv :affordable? (:store/products hud))))
     (is (= ["gem-100"] (mapv :id (:store/gem-packs hud))))
     (is (= ["pi-1"] (mapv :id (:store/payments hud))))
+    (is (= ["mail-1"] (mapv :id (:mail/inbox hud))))
     (is (= ["did:friend"] (:social/friends hud)))
     (is (= ["in"] (mapv :id (:social/pending-in hud))))
     (is (= ["did:me" "did:friend"]
            (mapv :player (get-in hud [:social/group-members "guild"]))))
-    (is (= [1 2 3 2 1] (mapv :tab/count (:hud/tabs hud))))))
+    (is (= [1 2 3 1 2 1] (mapv :tab/count (:hud/tabs hud))))))
 
 (deftest friendship-and-group-lifecycle
   (let [base (social/platform-state)

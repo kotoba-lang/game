@@ -24,6 +24,7 @@
    :payment-intents {}
    :refunds {}
    :daily-rewards {}
+   :mail {}
    :inventories {}
    :receipts {}
    :leaderboards {}
@@ -290,6 +291,103 @@
   (or (pos? (get-in inv [:inventory/items item-id] 0))
       (contains? (:inventory/entitlements inv) item-id)))
 
+(defn mail-attachment
+  [{:keys [currency amount item quantity] :as attachment}]
+  (cond
+    (and (= currency :free-gem) (integer? amount) (pos? amount)) attachment
+    (and item (integer? quantity) (pos? quantity)) attachment
+    :else nil))
+
+(defn issue-mail
+  "Create host-verified system mail. Attachments are free gems or stack items;
+   paid gems and entitlements are deliberately not transferable here."
+  [state {:keys [id recipient sender kind subject attachments created-at expires-at verified?]}]
+  (cond
+    (contains? (:mail state) id) [:duplicate (get-in state [:mail id]) state]
+    (or (nil? id) (nil? recipient) (not verified?) (not (seq attachments))
+        (not (every? mail-attachment attachments))
+        (and expires-at (<= expires-at created-at)))
+    [:error :invalid-mail state]
+    :else
+    (let [message #:mail{:id id :recipient recipient :sender sender
+                         :kind (or kind :system) :subject (or subject "Reward")
+                         :attachments (vec attachments) :status :pending
+                         :created-at created-at :expires-at expires-at}]
+      [:ok message (assoc-in state [:mail id] message)])))
+
+(defn send-free-gem-gift
+  "Escrow free gems from a verified friend relationship at send time."
+  [state {:keys [id sender recipient amount created-at expires-at friendship-verified?]}]
+  (cond
+    (contains? (:mail state) id) [:duplicate (get-in state [:mail id]) state]
+    (or (nil? id) (nil? sender) (nil? recipient) (= sender recipient)
+        (not friendship-verified?) (not (integer? amount)) (not (<= 1 amount 100))
+        (not (integer? expires-at)) (<= expires-at created-at))
+    [:error :invalid-gift state]
+    :else
+    (let [debit #:tx{:id (str "gift-escrow/" id) :currency :free-gem
+                     :amount (- amount) :kind :gift-escrow :at created-at :ref recipient}
+          [status wallet] (apply-transaction (get-in state [:wallets sender] (wallet)) debit)]
+      (if (not= :ok status)
+        [:error status state]
+        (let [[mail-status message next-state]
+              (issue-mail (assoc-in state [:wallets sender] wallet)
+                          {:id id :recipient recipient :sender sender :kind :gift
+                           :subject "Friend gift" :attachments [{:currency :free-gem :amount amount}]
+                           :created-at created-at :expires-at expires-at :verified? true})]
+          (if (= :ok mail-status) [:ok message next-state]
+              [:error :gift-mail-failed state]))))))
+
+(defn claim-mail
+  [state {:keys [mail-id player now]}]
+  (let [message (get-in state [:mail mail-id])]
+    (cond
+      (nil? message) [:error :mail-not-found state]
+      (not= player (:mail/recipient message)) [:error :not-mail-recipient state]
+      (= :claimed (:mail/status message)) [:duplicate message state]
+      (not= :pending (:mail/status message)) [:error :mail-not-pending state]
+      (and (:mail/expires-at message) (>= now (:mail/expires-at message)))
+      [:error :mail-expired state]
+      :else
+      (let [[wallet inventory]
+            (reduce (fn [[w inv] [index attachment]]
+                      (if-let [currency (:currency attachment)]
+                        [(second (apply-transaction
+                                  w #:tx{:id (str "mail/" mail-id "/" index)
+                                         :currency currency :amount (:amount attachment)
+                                         :kind :mail-claim :at now :ref mail-id})) inv]
+                        [w (second (grant-item inv #:item{:id (:item attachment)
+                                                        :quantity (:quantity attachment)}))]))
+                    [(get-in state [:wallets player] (wallet))
+                     (get-in state [:inventories player] (inventory))]
+                    (map-indexed vector (:mail/attachments message)))
+            claimed (assoc message :mail/status :claimed :mail/claimed-at now)]
+        [:ok claimed (-> state
+                         (assoc-in [:wallets player] wallet)
+                         (assoc-in [:inventories player] inventory)
+                         (assoc-in [:mail mail-id] claimed))]))))
+
+(defn expire-mail
+  "Expire pending mail. Gift escrow is returned exactly once to its sender."
+  [state mail-id now]
+  (let [message (get-in state [:mail mail-id])]
+    (cond
+      (nil? message) [:error :mail-not-found state]
+      (not= :pending (:mail/status message)) [:duplicate message state]
+      (or (nil? (:mail/expires-at message)) (< now (:mail/expires-at message)))
+      [:error :mail-not-expired state]
+      :else
+      (let [expired (assoc message :mail/status :expired :mail/expired-at now)
+            state (assoc-in state [:mail mail-id] expired)]
+        (if (= :gift (:mail/kind message))
+          (let [amount (get-in message [:mail/attachments 0 :amount])
+                [_ wallet] (apply-transaction
+                            (get-in state [:wallets (:mail/sender message)] (wallet))
+                            #:tx{:id (str "gift-refund/" mail-id) :currency :free-gem
+                                 :amount amount :kind :gift-refund :at now :ref mail-id})]
+            [:ok expired (assoc-in state [:wallets (:mail/sender message)] wallet)])
+          [:ok expired state])))))
+
 (defn product
   [{:product/keys [id currency price grants] :as p}]
   (when (and id (contains? currencies currency) (integer? price) (pos? price)
@@ -517,7 +615,7 @@
    old clients can read newer snapshots."
   [{:keys [did balances transactions inventory receipts products
            gem-packs payments daily-reward server-day
-           friend-requests friendships blocks groups group-members]
+           mail friend-requests friendships blocks groups group-members]
     :as _snapshot}]
   (let [wallet-balances (reduce (fn [m {:keys [currency balance]}]
                                   (assoc m (currency-key currency) (or balance 0)))
@@ -538,6 +636,9 @@
         pending-out (->> friend-requests
                          (filter #(and (= did (:sender %)) (= "pending" (:status %))))
                          (sort-by :created_at) vec)
+        inbox (->> mail
+                   (filter #(= "pending" (:status %)))
+                   (sort-by :created_at >) vec)
         product-models (->> products
                             (map (fn [{:keys [currency price] :as p}]
                                    (let [currency (currency-key currency)]
@@ -557,6 +658,7 @@
      :store/receipts (vec receipts)
      :store/gem-packs (vec gem-packs)
      :store/payments (vec payments)
+     :mail/inbox inbox
      :social/friends friend-ids
      :social/pending-in pending-in
      :social/pending-out pending-out
@@ -571,6 +673,7 @@
      :hud/tabs [{:tab/id :wallet :tab/count (count transactions)}
                 {:tab/id :inventory :tab/count (count owned-items)}
                 {:tab/id :store :tab/count (+ (count product-models) (count gem-packs))}
+                {:tab/id :mail :tab/count (count inbox)}
                 {:tab/id :friends :tab/count (+ (count friend-ids) (count pending-in))}
                 {:tab/id :groups :tab/count (count groups)}]}))
 
