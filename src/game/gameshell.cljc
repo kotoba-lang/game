@@ -7,7 +7,8 @@
   HUD overlay rendered on top of WebGPU canvas: HP bar, gems counter,
   ammo, minimap (top-right), chat panel (bottom-left), portal indicator,
   scoreboard (Tab), inventory grid (I). GameShell is data-only —
-  rendering is done by kami-render (wgpu) or a Svelte overlay (web).")
+  rendering is done by kami-render (wgpu) or a Svelte overlay (web)."
+  (:require [kotoba.lang.text]))
 
 ;; -----------------------------------------------------------------------
 ;; Data shapes (plain maps, keyword keys):
@@ -68,9 +69,9 @@
 
 (defn- json-escape [s]
   (-> s
-      (clojure.string/replace "\\" "\\\\")
-      (clojure.string/replace "\"" "\\\"")
-      (clojure.string/replace "\n" "\\n")))
+      (kotoba.lang.text/replace "\\" "\\\\")
+      (kotoba.lang.text/replace "\"" "\\\"")
+      (kotoba.lang.text/replace "\n" "\\n")))
 
 (declare ->json)
 
@@ -82,8 +83,8 @@
   [v]
   (cond
     (nil? v) "null"
-    (map? v) (str "{" (clojure.string/join "," (map kv->json v)) "}")
-    (sequential? v) (str "[" (clojure.string/join "," (map ->json v)) "]")
+    (map? v) (str "{" (kotoba.lang.text/join "," (map kv->json v)) "}")
+    (sequential? v) (str "[" (kotoba.lang.text/join "," (map ->json v)) "]")
     (string? v) (str "\"" (json-escape v) "\"")
     (boolean? v) (str v)
     (keyword? v) (str "\"" (name v) "\"")
@@ -132,9 +133,9 @@
       (if (and (< j n) (contains? num-chars (ch s j)))
         (recur (inc j))
         (let [tok (subs s i j)]
-          [(if (or (clojure.string/includes? tok ".")
-                    (clojure.string/includes? tok "e")
-                    (clojure.string/includes? tok "E"))
+          [(if (or (kotoba.lang.text/includes? tok ".")
+                    (kotoba.lang.text/includes? tok "e")
+                    (kotoba.lang.text/includes? tok "E"))
              #?(:clj (Double/parseDouble tok) :cljs (js/parseFloat tok))
              #?(:clj (Long/parseLong tok) :cljs (js/parseInt tok 10)))
            j])))))

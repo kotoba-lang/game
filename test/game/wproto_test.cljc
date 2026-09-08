@@ -10,7 +10,7 @@
   (EDN, see namespace docstring in `game.wproto`) and assert the
   equivalent EDN substring containment."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [game.wproto :as wproto]))
 
 (deftest namespace-loads

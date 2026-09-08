@@ -11,7 +11,7 @@
       added after that assertion was written). This port asserts the
       correct count, 29."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [game.island-gen :as ig]))
 
 (deftest all-games-generate-valid-islands
@@ -33,7 +33,7 @@
   (testing "io_multiplayer_has_orbs"
     (let [agar (first (filter #(= "agar" (:slug %)) (ig/godot-game-catalog)))
           scene (ig/game-to-island agar)
-          orb-count (count (filter #(clojure.string/starts-with? (:id %) "orb-") (:entities scene)))]
+          orb-count (count (filter #(str/starts-with? (:id %) "orb-") (:entities scene)))]
       (is (= 20 orb-count)))))
 
 (deftest rpg-has-castle
@@ -70,8 +70,8 @@
     (let [cbn (first (filter #(= "colorbynumber" (:slug %)) (ig/godot-game-catalog)))
           scene (ig/game-to-island cbn)]
       (is (some #(= "easel-frame" (:id %)) (:entities scene)))
-      (let [cell-count (count (filter #(clojure.string/starts-with? (:id %) "cell-") (:entities scene)))
-            paint-count (count (filter #(clojure.string/starts-with? (:id %) "paint-") (:entities scene)))]
+      (let [cell-count (count (filter #(str/starts-with? (:id %) "cell-") (:entities scene)))
+            paint-count (count (filter #(str/starts-with? (:id %) "paint-") (:entities scene)))]
         (is (= 64 cell-count))
         (is (= 6 paint-count)))
       (is (some #(= "palette-stand" (:id %)) (:entities scene)))
@@ -100,7 +100,7 @@
               (str (:character-id chain) " stage 0 should have empty social-gate"))
           (let [final-stage (last (:stages chain))]
             (when (> (count (:stages chain)) 2)
-              (is (clojure.string/starts-with? (:social-gate final-stage) "dan")
+              (is (str/starts-with? (:social-gate final-stage) "dan")
                   (str (:character-id chain) " final stage should have dan gate, got '" (:social-gate final-stage) "'"))))
           (doseq [[a b] (partition 2 1 (:stages chain))]
             (is (>= (:scale b) (:scale a))
