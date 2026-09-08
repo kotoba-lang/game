@@ -4,7 +4,7 @@
   Hosts own identity proof, durable storage, consent, an authoritative clock and
   payment verification. This namespace only accepts bounded pseudonymous event
   envelopes and produces deterministic projections."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def contract-version 1)
 (def inactivity-seconds 1800)

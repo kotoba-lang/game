@@ -5,7 +5,7 @@
   clojure.test, as part of the clj-wgsl migration (ADR-2607010930,
   com-junkawasaki/root), restoration cluster G (quality/wire-protocol)."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [game.quality :as quality]))
 
 (deftest namespace-loads
