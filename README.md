@@ -31,12 +31,12 @@ merged server-side into `main`:
 Because clusters worked without visibility into each other's in-progress code, several
 files inline small locally duck-typed stand-ins for types that are conceptually "owned"
 by another cluster's module — documented inline at each point of use. These are not
-reconciled into shared types in this assembly pass (see `src/game.cljc`'s docstring).
+reconciled into shared types in this assembly pass (see `src/game.cljk`'s docstring).
 
 ## Status
 
 Restored — all 29 original `pub mod` modules ported to CLJC namespaces under
-`src/game/`, assembled behind a root `src/game.cljc` (mirroring the original `lib.rs`'s
+`src/game/`, assembled behind a root `src/game.cljk` (mirroring the original `lib.rs`'s
 module list). Every original Rust `#[test]` ported 1:1 (plus additional coverage where
 the original module had none), across `test/game/*.cljc`:
 
