@@ -1,7 +1,7 @@
 (ns game.ketsu-test
   "Tests ported 1:1 from kami-game/src/ketsu.rs `#[cfg(test)] mod tests`
   (restored per ADR-2607010930)."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.ketsu :as ketsu]))
 
 (def ^:private dummy-input

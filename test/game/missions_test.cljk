@@ -1,4 +1,4 @@
-(ns game.missions-test (:require [clojure.test :refer [deftest is]] [game.missions :as missions]))
+(ns game.missions-test (:require [kotoba.test :refer [deftest is]] [game.missions :as missions]))
 
 (def defs [#:mission{:id :play-3 :event :play :target 3 :starts-at 10 :ends-at 100
                      :prerequisites #{} :rewards {:free-gem 10}}

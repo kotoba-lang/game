@@ -1,5 +1,5 @@
 (ns game.platform-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.platform :as platform]))
 
 (deftest detect-iphone

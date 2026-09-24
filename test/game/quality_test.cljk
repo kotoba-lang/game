@@ -4,7 +4,7 @@
   kami-engine PR #82 \"Remove Rust workspace from kami-engine\"), ported to
   clojure.test, as part of the clj-wgsl migration (ADR-2607010930,
   com-junkawasaki/root), restoration cluster G (quality/wire-protocol)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [game.quality :as quality]))
 

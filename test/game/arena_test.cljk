@@ -1,5 +1,5 @@
 (ns game.arena-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.arena :as arena]))
 
 (deftest arena-scene-valid

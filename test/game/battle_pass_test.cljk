@@ -1,4 +1,4 @@
-(ns game.battle-pass-test (:require [clojure.test :refer [deftest is]] [game.battle-pass :as pass]))
+(ns game.battle-pass-test (:require [kotoba.test :refer [deftest is]] [game.battle-pass :as pass]))
 
 (def season #:season{:id :s1 :starts-at 10 :ends-at 100
                      :tiers [#:tier{:level 1 :xp 10 :free {:gem 5} :premium {:item 1}}

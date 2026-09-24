@@ -1,7 +1,7 @@
 (ns game.pokoa-test
   "Tests ported 1:1 from kami-game/src/pokoa.rs `#[cfg(test)] mod tests`
   (restored per ADR-2607010930)."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.pokoa :as pokoa]))
 
 (deftest type-effectiveness-basic

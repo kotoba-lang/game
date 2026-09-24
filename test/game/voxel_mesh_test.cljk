@@ -3,7 +3,7 @@
   (kotoba-lang/kami-engine, deleted PR #82) 1:1. See `game.voxel-mesh`
   (including its docstring note on the local `BlockType`/`VoxelChunk`
   duck-type shim)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.voxel-mesh :as vm]))
 
 (def chunk-size vm/chunk-size)

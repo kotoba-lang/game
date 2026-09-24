@@ -1,5 +1,5 @@
 (ns game.economy-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.economy :as economy]))
 
 (deftest wallet-credit-debit

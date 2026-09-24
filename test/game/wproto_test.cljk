@@ -9,7 +9,7 @@
   substring containment; ported tests use `game.wproto/record->wire`
   (EDN, see namespace docstring in `game.wproto`) and assert the
   equivalent EDN substring containment."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [game.wproto :as wproto]))
 

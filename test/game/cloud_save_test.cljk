@@ -1,4 +1,4 @@
-(ns game.cloud-save-test (:require [clojure.test :refer [deftest is]] [game.cloud-save :as save]))
+(ns game.cloud-save-test (:require [kotoba.test :refer [deftest is]] [game.cloud-save :as save]))
 (defn commit [s id expected data device]
   (save/commit s #:save{:id id :player "did:p" :game "g/drive" :expected-rev expected
                         :device device :data data :checksum (str "sha:" id) :created-at expected}))

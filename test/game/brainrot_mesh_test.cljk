@@ -1,7 +1,7 @@
 (ns game.brainrot-mesh-test
   "Ports every `#[test]` from the original `kami-game/src/brainrot_mesh.rs`
   (kotoba-lang/kami-engine, deleted PR #82) 1:1. See `game.brainrot-mesh`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.brainrot-mesh :as bm]))
 
 (defn- validate-mesh [name [verts idxs]]
