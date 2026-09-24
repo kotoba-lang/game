@@ -1,5 +1,5 @@
 (ns game.economy-operations-test
-  (:require [clojure.test :refer [deftest is]] [game.economy-operations :as ops]))
+  (:require [kotoba.test :refer [deftest is]] [game.economy-operations :as ops]))
 
 (defn event [id at amount ref]
   #:economy-event{:id id :player "p1" :kind :settlement :currency :paid-gem

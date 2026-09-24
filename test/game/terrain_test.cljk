@@ -1,7 +1,7 @@
 (ns game.terrain-test
   "Tests ported 1:1 from kami-game's `terrain.rs` `#[cfg(test)] mod tests`
   (kotoba-lang/kami-engine, deleted PR #82). See `game.terrain` docstring."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.terrain :as terrain]))
 
 (deftest flat-terrain-mesh

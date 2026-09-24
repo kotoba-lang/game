@@ -1,5 +1,5 @@
 (ns game.subscription-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.subscription :as subscription]))
 
 (def plans

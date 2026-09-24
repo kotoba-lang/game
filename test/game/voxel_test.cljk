@@ -1,7 +1,7 @@
 (ns game.voxel-test
   "Tests ported 1:1 from kami-game's `voxel.rs` `#[cfg(test)] mod tests`
   (kotoba-lang/kami-engine, deleted PR #82). See `game.voxel` docstring."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.voxel :as voxel]))
 
 (deftest chunk-set-get

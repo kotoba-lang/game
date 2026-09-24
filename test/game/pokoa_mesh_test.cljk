@@ -1,7 +1,7 @@
 (ns game.pokoa-mesh-test
   "Ports every `#[test]` from the original `kami-game/src/pokoa_mesh.rs`
   (kotoba-lang/kami-engine, deleted PR #82) 1:1. See `game.pokoa-mesh`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.pokoa-mesh :as pm]))
 
 (defn- validate-mesh [name [verts idxs]]

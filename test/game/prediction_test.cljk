@@ -1,5 +1,5 @@
 (ns game.prediction-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.prediction :as prediction]))
 
 (def x-axis [1.0 0.0 0.0])

@@ -1,5 +1,5 @@
 (ns game.liveops-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.liveops :as liveops]))
 
 (def base-flag

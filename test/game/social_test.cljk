@@ -1,5 +1,5 @@
 (ns game.social-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [game.social :as social]))
 
 (deftest notification-inbox-is-recipient-scoped-idempotent-and-bounded

@@ -1,5 +1,5 @@
 (ns game.moderation-test
-  (:require [clojure.test :refer [deftest is]] [game.moderation :as moderation]))
+  (:require [kotoba.test :refer [deftest is]] [game.moderation :as moderation]))
 
 (def report #:report{:id "r1" :reporter "did:reporter" :subject "did:bad"
                      :target-type :chat-message :target-id "m1" :category :harassment

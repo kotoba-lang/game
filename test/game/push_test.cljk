@@ -1,4 +1,4 @@
-(ns game.push-test (:require [clojure.test :refer [deftest is]] [game.push :as push]))
+(ns game.push-test (:require [kotoba.test :refer [deftest is]] [game.push :as push]))
 (def subscription #:subscription{:id "device-1" :player "did:p" :endpoint-ref "secret:endpoint-1"
   :locale "ja" :timezone-offset 540 :quiet-start 1320 :quiet-end 420
   :topics #{:game :store} :expires-at 999999})

@@ -1,6 +1,6 @@
 (ns game.animation-test
   "1:1 port of kami-game/src/animation.rs #[cfg(test)] mod tests (ADR-2607010930)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.animation :as a]))
 
 (defn- vsub [[ax ay az] [bx by bz]] [(- ax bx) (- ay by) (- az bz)])

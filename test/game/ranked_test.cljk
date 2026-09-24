@@ -1,7 +1,7 @@
 (ns game.ranked-test
   "Tests ported 1:1 from kami-game's `ranked.rs` `#[cfg(test)] mod tests`
   (kotoba-lang/kami-engine, deleted PR #82; ADR-2607010930)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.ranked :as ranked]))
 
 (deftest rank-tiers

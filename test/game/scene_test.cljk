@@ -2,7 +2,7 @@
   "1:1 port of kami-game/src/scene.rs #[cfg(test)] mod tests (ADR-2607010930).
   The original round-trips through serde_json; this port round-trips through
   the native EDN reader/printer instead (see game.scene namespace docstring)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.scene :as sc]))
 
 (deftest scene-roundtrip-edn

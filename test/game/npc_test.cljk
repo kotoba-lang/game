@@ -1,6 +1,6 @@
 (ns game.npc-test
   "1:1 port of kami-game/src/npc.rs #[cfg(test)] mod tests (ADR-2607010930)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.npc :as n]))
 
 (deftest npc-patrol

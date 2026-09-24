@@ -1,6 +1,6 @@
 (ns game.physics-test
   "1:1 port of kami-game/src/physics.rs #[cfg(test)] mod tests (ADR-2607010930)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [game.physics :as p]))
 
 (deftest physics-gravity

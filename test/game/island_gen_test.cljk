@@ -10,7 +10,7 @@
       entries (22 originals + 6 brainrot + 1 chase game, `ketsu-gorilla`,
       added after that assertion was written). This port asserts the
       correct count, 29."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [game.island-gen :as ig]))
 
