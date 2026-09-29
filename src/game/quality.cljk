@@ -6,7 +6,7 @@
   migration (ADR-2607010930, com-junkawasaki/root), restoration cluster G
   (quality/wire-protocol) of the 7-cluster `kotoba-lang/game` restoration.
 
-  Evaluates game scenes against the 7 Design Principles (CLAUDE.md) and
+  Evaluates game scenes against the 7 Design Principles (AGENTS.md) and
   produces a letter grade (S/A/B/C/D/F) with actionable feedback. Pure data
   + pure functions throughout; no IO/GPU. Original doc: run via `cargo test
   -p kami-game --lib quality`; integrate via `gftd build` post-build gate.")
